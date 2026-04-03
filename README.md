@@ -38,20 +38,7 @@ The plugin requires a Scripted REST API on your SN instance. See [`docs/sn-side-
 - Choice values for categories and projects
 - ACLs
 
-**Required endpoints:**
-
-| Operation | Method | Path |
-|-----------|--------|------|
-| List docs | GET | `/documents` |
-| Get doc | GET | `/documents/{id}` |
-| Create doc | POST | `/documents` |
-| Update doc | PUT | `/documents/{id}` |
-| Delete doc | DELETE | `/documents/{id}` |
-| Get changes | GET | `/documents/changes?since={ts}` |
-| Checkout | POST | `/documents/{id}/checkout` |
-| Checkin | POST | `/documents/{id}/checkin` |
-| Force checkin | POST | `/documents/{id}/force-checkin` |
-| Metadata | GET | `/metadata` |
+**Required endpoints** (see [API Contract](#api-contract) for full request/response details):
 
 ### 2. OAuth Application
 
@@ -96,10 +83,133 @@ If you're starting with an empty SN instance and existing vault docs:
 If you're starting with existing SN docs and an empty vault:
 1. Run **Cmd+P > "Initial pull"** to download all documents
 
-## Metadata Response Shape
+## API Contract
 
-The plugin fetches metadata from your SN instance to populate dropdowns for categories, projects, and tags. You implement a metadata endpoint on your instance (at the `metadataPath` configured in settings) that returns JSON in this shape:
+All endpoints are relative to the **API path** configured in settings. All responses must be wrapped in a `result` object. Every document response must include `sys_id` and `sys_updated_on`. Create/update responses must return the full record.
 
+### Document Schema
+
+The plugin expects each document to have these fields:
+
+```json
+{
+  "sys_id": "abc123",
+  "title": "Document Title",
+  "content": "Markdown content body",
+  "category": "session_log",
+  "project": "my_project",
+  "tags": "tag1, tag2",
+  "sys_updated_on": "2026-04-01 12:00:00",
+  "checked_out_by": ""
+}
+```
+
+### Endpoints
+
+#### GET /documents — List all documents
+
+Returns all documents as an array.
+
+**Response:**
+```json
+{ "result": [ { ...document }, { ...document } ] }
+```
+
+#### GET /documents/{id} — Get single document
+
+**Response:**
+```json
+{ "result": { ...document } }
+```
+
+Returns `404` if not found.
+
+#### POST /documents — Create document
+
+**Request body:**
+```json
+{
+  "title": "New Document",
+  "content": "Markdown content",
+  "category": "session_log",
+  "project": "my_project",
+  "tags": ""
+}
+```
+
+**Response** (status `201`):
+```json
+{ "result": { ...created document with sys_id } }
+```
+
+#### PUT /documents/{id} — Update document
+
+**Request body** (all fields optional):
+```json
+{
+  "title": "Updated Title",
+  "content": "Updated content"
+}
+```
+
+**Response:**
+```json
+{ "result": { ...updated document } }
+```
+
+Returns `409` if the document was modified by another user (conflict).
+
+#### DELETE /documents/{id} — Delete document
+
+**Response:** status `204`, no body.
+
+#### GET /documents/changes?since={timestamp} — Get changed documents
+
+Returns documents where `sys_updated_on > since`. Used for incremental sync.
+
+**Response:**
+```json
+{ "result": [ { ...document }, { ...document } ] }
+```
+
+Returns an empty array if no changes.
+
+#### POST /documents/{id}/checkout — Lock document
+
+Sets the current user as the lock holder.
+
+**Response:**
+```json
+{ "result": { ...document with checked_out_by set } }
+```
+
+Returns `423` if already locked by another user.
+
+#### POST /documents/{id}/checkin — Unlock document
+
+Clears the lock. Only the user who checked it out can check it in.
+
+**Response:**
+```json
+{ "result": { ...document with checked_out_by cleared } }
+```
+
+Returns `403` if locked by a different user.
+
+#### POST /documents/{id}/force-checkin — Force unlock
+
+Clears the lock regardless of who holds it. For admin use.
+
+**Response:**
+```json
+{ "result": { ...document with checked_out_by cleared } }
+```
+
+### GET {metadataPath} — Get metadata
+
+Returns available categories, projects, and tags for populating dropdowns. The path is configurable in settings (default: `/metadata`).
+
+**Response:**
 ```json
 {
   "result": {
@@ -114,9 +224,9 @@ The plugin fetches metadata from your SN instance to populate dropdowns for cate
 }
 ```
 
-The `categories` and `projects` arrays contain objects with a `value` (the internal key stored in frontmatter) and a `label` (the human-readable name shown in the UI). The `tags` array is a flat list of strings.
-
-If your metadata is static, you can hardcode the arrays in your Scripted REST resource — the plugin just needs the response in this shape. For dynamic metadata, query your choice lists or configuration tables and build the response at runtime.
+- `categories` and `projects` are arrays of `{ value, label }` objects. The `value` is stored in frontmatter, the `label` is shown in the UI.
+- `tags` is a flat array of strings.
+- If your metadata is static, hardcode the arrays — the plugin just needs the response in this shape.
 
 ## Sync Behavior
 

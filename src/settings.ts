@@ -36,6 +36,16 @@ export class SNSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    // --- Documentation Link ---
+    new Setting(containerEl)
+      .setName("Documentation")
+      .setDesc("Setup guide, API contract, and configuration reference")
+      .addButton((button) =>
+        button.setButtonText("Open README").onClick(() => {
+          window.open("https://github.com/cbonitz8/sn-obsidian-sync#readme");
+        })
+      );
+
     // --- Connection Section ---
     containerEl.createEl("h2", { text: "Connection" });
 
