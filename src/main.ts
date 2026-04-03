@@ -28,7 +28,7 @@ export default class SNSyncPlugin extends Plugin {
   syncState!: SyncState;
   authTokens!: AuthTokens;
   authManager!: AuthManager;
-  private apiClient!: ApiClient;
+  apiClient!: ApiClient;
   private frontmatterManager!: FrontmatterManager;
   private fileWatcher!: FileWatcher;
   private conflictResolver!: ConflictResolver;
