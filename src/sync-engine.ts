@@ -164,7 +164,7 @@ export class SyncEngine {
         const file = candidates[i]!;
         try {
           const fm = await this.frontmatterManager.read(file);
-          const content = await this.getContentWithoutFrontmatter(file);
+          const content = await this.getFileContent(file);
 
           const createResult = await this.apiClient.createDocument({
             title: file.basename,
@@ -267,18 +267,11 @@ export class SyncEngine {
 
       // Content comparison: sys_updated_on can bump for non-content reasons
       // (lock cleanup, metadata-only updates), so compare actual content
-      const localContent = await this.getContentWithoutFrontmatter(file);
+      const localContent = await this.getFileContent(file);
       const contentChanged = localContent !== doc.content;
 
       if (!contentChanged) {
-        // Content is identical — only update frontmatter metadata (lock status, etc.)
-        this.fileWatcher.addSyncWritePath(file.path);
-        await this.frontmatterManager.write(file, {
-          category: doc.category,
-          project: doc.project,
-          tags: doc.tags,
-        });
-        this.fileWatcher.removeSyncWritePath(file.path);
+        // Content is identical (including frontmatter) — nothing to update
         mapEntry.lastServerTimestamp = doc.sys_updated_on;
       } else {
         // Content actually differs
@@ -288,20 +281,9 @@ export class SyncEngine {
           await this.conflictResolver.applyConflict(file, doc.content);
           result.conflicts++;
         } else {
-          // Local is clean — safe to overwrite with remote content
+          // Local is clean — safe to overwrite with remote content (includes frontmatter)
           this.fileWatcher.addSyncWritePath(file.path);
-          const prefix = this.plugin.settings.frontmatterPrefix;
-          const frontmatter = [
-            "---",
-            `${prefix}sys_id: ${doc.sys_id}`,
-            `${prefix}category: ${doc.category}`,
-            `${prefix}project: "${doc.project}"`,
-            `${prefix}tags: "${doc.tags}"`,
-            `${prefix}synced: true`,
-            "---",
-            "",
-          ].join("\n");
-          await this.plugin.app.vault.modify(file, frontmatter + doc.content);
+          await this.plugin.app.vault.modify(file, doc.content);
           this.fileWatcher.removeSyncWritePath(file.path);
           mapEntry.lastServerTimestamp = doc.sys_updated_on;
           result.pulled++;
@@ -331,7 +313,7 @@ export class SyncEngine {
 
   private async handlePushFile(file: TFile, result: SyncResult) {
     const fm = await this.frontmatterManager.read(file);
-    const content = await this.getContentWithoutFrontmatter(file);
+    const content = await this.getFileContent(file);
 
     // Don't push files with unresolved conflicts
     if (hasConflictMarkers(content)) return;
@@ -484,7 +466,7 @@ export class SyncEngine {
       if (file) return; // already exists locally
     }
 
-    const { folderMapping, frontmatterPrefix } = this.plugin.settings;
+    const { folderMapping } = this.plugin.settings;
 
     // Use display labels for folder names, not SN choice values
     await this.ensureMetadata();
@@ -504,21 +486,9 @@ export class SyncEngine {
       await this.ensureFolderExists(parentDir);
     }
 
-    // Build frontmatter
-    const prefix = frontmatterPrefix;
-    const frontmatter = [
-      "---",
-      `${prefix}sys_id: ${doc.sys_id}`,
-      `${prefix}category: ${doc.category}`,
-      `${prefix}project: "${doc.project}"`,
-      `${prefix}tags: "${doc.tags}"`,
-      `${prefix}synced: true`,
-      "---",
-      "",
-    ].join("\n");
-
+    // Write file content directly — frontmatter is stored in SN content field
     this.fileWatcher.addSyncWritePath(finalPath);
-    await this.plugin.app.vault.create(finalPath, frontmatter + doc.content);
+    await this.plugin.app.vault.create(finalPath, doc.content);
     this.fileWatcher.removeSyncWritePath(finalPath);
 
     // Track in docMap
@@ -551,11 +521,7 @@ export class SyncEngine {
     return `${base} (${sysId.slice(0, 6)})${ext}`;
   }
 
-  private async getContentWithoutFrontmatter(file: TFile): Promise<string> {
-    const raw = await this.plugin.app.vault.read(file);
-    if (!raw.startsWith("---")) return raw;
-    const endIndex = raw.indexOf("---", 3);
-    if (endIndex === -1) return raw;
-    return raw.slice(endIndex + 3).replace(/^\n+/, "");
+  private async getFileContent(file: TFile): Promise<string> {
+    return this.plugin.app.vault.read(file);
   }
 }
