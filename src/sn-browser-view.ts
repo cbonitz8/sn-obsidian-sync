@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Menu } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata } from "./types";
 
@@ -198,7 +198,59 @@ export class SNBrowserView extends ItemView {
   }
 
   private renderSettingsTab(container: HTMLElement) {
-    container.createEl("p", { text: "Sync settings will appear here." });
+    // Sync overview stats
+    const stats = container.createDiv({ cls: "sn-sync-stats" });
+    const totalServer = this.serverDocs.length;
+    const totalLocal = Object.keys(this.plugin.syncState.docMap).length;
+    const excludeCount = this.plugin.settings.excludePaths.length;
+
+    stats.createEl("h3", { text: "Sync Overview" });
+    const statGrid = stats.createDiv({ cls: "sn-stat-grid" });
+    statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${totalServer}</span><span class="sn-stat-label">On Server</span>`;
+    statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${totalLocal}</span><span class="sn-stat-label">Downloaded</span>`;
+    statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${excludeCount}</span><span class="sn-stat-label">Excluded Paths</span>`;
+
+    // Exclude list
+    const excludeSection = container.createDiv({ cls: "sn-exclude-section" });
+    excludeSection.createEl("h3", { text: "Excluded from Sync" });
+    excludeSection.createEl("p", {
+      text: "Files and folders matching these patterns will not be synced to ServiceNow.",
+      cls: "sn-exclude-desc",
+    });
+
+    const addRow = excludeSection.createDiv({ cls: "sn-exclude-add" });
+    const addInput = addRow.createEl("input", {
+      type: "text",
+      placeholder: "Folder path or pattern (e.g., Templates/ or *.canvas)",
+      cls: "sn-exclude-input",
+    });
+    const addBtn = addRow.createEl("button", { text: "Add", cls: "sn-action-btn mod-cta" });
+    addBtn.addEventListener("click", async () => {
+      const value = addInput.value.trim();
+      if (!value) return;
+      if (!this.plugin.settings.excludePaths.includes(value)) {
+        this.plugin.settings.excludePaths.push(value);
+        await this.plugin.saveSettings();
+      }
+      addInput.value = "";
+      this.render();
+    });
+
+    const list = excludeSection.createDiv({ cls: "sn-exclude-list" });
+    if (this.plugin.settings.excludePaths.length === 0) {
+      list.createEl("p", { text: "No exclusions configured.", cls: "sn-exclude-empty" });
+    } else {
+      for (const path of this.plugin.settings.excludePaths) {
+        const row = list.createDiv({ cls: "sn-exclude-row" });
+        row.createEl("span", { text: path, cls: "sn-exclude-path" });
+        const removeBtn = row.createEl("button", { text: "✕", cls: "sn-exclude-remove" });
+        removeBtn.addEventListener("click", async () => {
+          this.plugin.settings.excludePaths = this.plugin.settings.excludePaths.filter((p) => p !== path);
+          await this.plugin.saveSettings();
+          this.render();
+        });
+      }
+    }
   }
 
   private renderTree(container: HTMLElement) {
@@ -249,6 +301,23 @@ export class SNBrowserView extends ItemView {
         }
         this.selectedTreeNode = projKey;
         this.render();
+      });
+
+      projHeader.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const menu = new Menu();
+        menu.addItem((item) => {
+          item.setTitle(`Exclude "${project}" from sync`);
+          item.onClick(async () => {
+            const pattern = `${project}/`;
+            if (!this.plugin.settings.excludePaths.includes(pattern)) {
+              this.plugin.settings.excludePaths.push(pattern);
+              await this.plugin.saveSettings();
+              new Notice(`Excluded "${project}" from sync`);
+            }
+          });
+        });
+        menu.showAtMouseEvent(e);
       });
 
       if (isExpanded) {

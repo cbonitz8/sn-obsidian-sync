@@ -238,3 +238,99 @@
   font-size: 0.8em;
   flex-shrink: 0;
 }
+
+.sn-sync-stats {
+  margin-bottom: 20px;
+}
+
+.sn-stat-grid {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.sn-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+}
+
+.sn-stat-value {
+  font-size: 1.5em;
+  font-weight: 700;
+}
+
+.sn-stat-label {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sn-exclude-section {
+  margin-top: 16px;
+}
+
+.sn-exclude-desc {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.sn-exclude-add {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.sn-exclude-input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.sn-exclude-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sn-exclude-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+}
+
+.sn-exclude-path {
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+}
+
+.sn-exclude-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sn-exclude-remove:hover {
+  color: var(--text-error);
+  background: var(--background-modifier-error);
+}
+
+.sn-exclude-empty {
+  font-size: 0.85em;
+  color: var(--text-faint);
+  font-style: italic;
+}
