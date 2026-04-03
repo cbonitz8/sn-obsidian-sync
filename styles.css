@@ -1,0 +1,21 @@
+/* sn-obsidian-sync styles */
+
+.sn-metadata-section {
+  margin-bottom: 12px;
+}
+
+.sn-metadata-section h4 {
+  margin: 8px 0 4px;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+.sn-metadata-section ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.sn-metadata-section li {
+  font-size: 0.85em;
+  line-height: 1.6;
+}

@@ -1,0 +1,9 @@
+{
+  "id": "sn-obsidian-sync",
+  "name": "ServiceNow Obsidian Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Bidirectional sync between Obsidian and a ServiceNow Scripted REST API",
+  "author": "",
+  "isDesktopOnly": true
+}
