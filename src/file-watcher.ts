@@ -51,7 +51,16 @@ export class FileWatcher {
   }
 
   private isSyncedFile(path: string): boolean {
-    return path.endsWith(".md");
+    if (!path.endsWith(".md")) return false;
+    return !this.isExcluded(path);
+  }
+
+  isExcluded(path: string): boolean {
+    for (const pattern of this.plugin.settings.excludePaths) {
+      if (path.startsWith(pattern) || path === pattern) return true;
+      if (pattern.startsWith("*") && path.endsWith(pattern.slice(1))) return true;
+    }
+    return false;
   }
 
   private onModify(file: TFile) {
@@ -139,6 +148,7 @@ export class FileWatcher {
     const dirtyFiles: TFile[] = [];
 
     for (const file of allFiles) {
+      if (this.isExcluded(file.path)) continue;
       const fm = await this.frontmatterManager.read(file);
       if (fm.synced === false) {
         dirtyFiles.push(file);

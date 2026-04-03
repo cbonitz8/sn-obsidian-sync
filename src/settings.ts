@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: SNSyncSettings = {
   localDeleteBehavior: "ignore",
   remoteDeleteBehavior: "delete local",
   folderMapping: DEFAULT_FOLDER_MAPPING,
+  excludePaths: [],
 };
 
 export class SNSyncSettingTab extends PluginSettingTab {
