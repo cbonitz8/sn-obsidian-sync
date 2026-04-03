@@ -1,4 +1,5 @@
 import { Notice, Plugin } from "obsidian";
+import { SNBrowserView, VIEW_TYPE_SN_BROWSER } from "./sn-browser-view";
 import { DEFAULT_SETTINGS, SNSyncSettingTab } from "./settings";
 import { AuthManager } from "./auth-manager";
 import { ApiClient } from "./api-client";
@@ -104,8 +105,34 @@ export default class SNSyncPlugin extends Plugin {
       callback: () => this.syncEngine.bulkPush(),
     });
 
+    this.addCommand({
+      id: "bulk-update",
+      name: "Bulk update (re-push all synced documents to SN)",
+      callback: () => this.syncEngine.bulkUpdate(),
+    });
+
     // Settings tab
     this.addSettingTab(new SNSyncSettingTab(this.app, this));
+
+    // SN Browser view
+    this.registerView(
+      VIEW_TYPE_SN_BROWSER,
+      (leaf) => new SNBrowserView(leaf, this)
+    );
+
+    this.addCommand({
+      id: "open-sn-browser",
+      name: "Open SN Browser",
+      callback: () => {
+        const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SN_BROWSER);
+        if (existing.length > 0) {
+          this.app.workspace.revealLeaf(existing[0]!);
+        } else {
+          const leaf = this.app.workspace.getLeaf("tab");
+          leaf.setViewState({ type: VIEW_TYPE_SN_BROWSER, active: true });
+        }
+      },
+    });
 
     // Start file watcher and sync engine
     this.fileWatcher.start();
@@ -113,6 +140,7 @@ export default class SNSyncPlugin extends Plugin {
   }
 
   async onunload() {
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_SN_BROWSER);
     this.syncEngine.stop();
   }
 

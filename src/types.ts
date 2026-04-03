@@ -83,6 +83,7 @@ export interface SNSyncSettings {
   localDeleteBehavior: LocalDeleteBehavior;
   remoteDeleteBehavior: RemoteDeleteBehavior;
   folderMapping: FolderMapping;
+  excludePaths: string[];
 }
 
 /** Persisted plugin data (settings + sync state + auth tokens) */
