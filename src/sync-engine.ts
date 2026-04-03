@@ -477,6 +477,13 @@ export class SyncEngine {
   }
 
   async createLocalFile(doc: SNDocument) {
+    // Skip if already tracked locally
+    const existing = this.plugin.syncState.docMap[doc.sys_id];
+    if (existing) {
+      const file = this.plugin.app.vault.getAbstractFileByPath(existing.path);
+      if (file) return; // already exists locally
+    }
+
     const { folderMapping, frontmatterPrefix } = this.plugin.settings;
 
     // Use display labels for folder names, not SN choice values
