@@ -102,3 +102,47 @@
   flex: 1;
   min-height: 0;
 }
+
+.sn-tree-pane {
+  flex: 0 0 200px;
+  border-right: 1px solid var(--background-modifier-border);
+  padding-right: 8px;
+  overflow-y: auto;
+}
+
+.sn-tree-node {
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.sn-tree-node:hover {
+  background: var(--background-secondary);
+}
+
+.sn-tree-node.is-active,
+.sn-tree-label.is-active {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.sn-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sn-tree-arrow {
+  font-size: 0.7em;
+  width: 12px;
+  text-align: center;
+}
+
+.sn-tree-children {
+  padding-left: 20px;
+}
+
+.sn-tree-category {
+  padding-left: 6px;
+}

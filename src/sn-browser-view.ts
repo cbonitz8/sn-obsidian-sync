@@ -15,6 +15,8 @@ export class SNBrowserView extends ItemView {
   private selectedStatus = "";
   private searchQuery = "";
   private selectedDocIds: Set<string> = new Set();
+  private selectedTreeNode: string = "";
+  private expandedNodes: Set<string> = new Set();
 
   constructor(leaf: WorkspaceLeaf, plugin: SNSyncPlugin) {
     super(leaf);
@@ -201,7 +203,70 @@ export class SNBrowserView extends ItemView {
 
   private renderTree(container: HTMLElement) {
     const treePane = container.createDiv({ cls: "sn-tree-pane" });
-    treePane.createEl("p", { text: "Tree loading..." });
+    const docs = this.getFilteredDocs();
+
+    // Group by project → category
+    const tree = new Map<string, Map<string, SNDocument[]>>();
+    for (const doc of docs) {
+      const proj = doc.project || "(No Project)";
+      if (!tree.has(proj)) tree.set(proj, new Map());
+      const projMap = tree.get(proj)!;
+      const cat = doc.category || "(Uncategorized)";
+      if (!projMap.has(cat)) projMap.set(cat, []);
+      projMap.get(cat)!.push(doc);
+    }
+
+    // "All" node
+    const allNode = treePane.createDiv({ cls: `sn-tree-node ${!this.selectedTreeNode ? "is-active" : ""}` });
+    allNode.createEl("span", { text: `All (${docs.length})` });
+    allNode.addEventListener("click", () => {
+      this.selectedTreeNode = "";
+      this.render();
+    });
+
+    // Project nodes
+    for (const [project, categories] of tree) {
+      const projKey = `project:${project}`;
+      const projCount = Array.from(categories.values()).reduce((sum, d) => sum + d.length, 0);
+      const isExpanded = this.expandedNodes.has(projKey);
+
+      const projNode = treePane.createDiv({ cls: "sn-tree-node sn-tree-project" });
+      const projHeader = projNode.createDiv({ cls: "sn-tree-header" });
+      projHeader.createEl("span", {
+        text: isExpanded ? "▼" : "▶",
+        cls: "sn-tree-arrow",
+      });
+      projHeader.createEl("span", {
+        text: `${project} (${projCount})`,
+        cls: `sn-tree-label ${this.selectedTreeNode === projKey ? "is-active" : ""}`,
+      });
+
+      projHeader.addEventListener("click", () => {
+        if (isExpanded) {
+          this.expandedNodes.delete(projKey);
+        } else {
+          this.expandedNodes.add(projKey);
+        }
+        this.selectedTreeNode = projKey;
+        this.render();
+      });
+
+      if (isExpanded) {
+        const catContainer = projNode.createDiv({ cls: "sn-tree-children" });
+        for (const [category, catDocs] of categories) {
+          const catKey = `${projKey}/category:${category}`;
+          const catNode = catContainer.createDiv({
+            cls: `sn-tree-node sn-tree-category ${this.selectedTreeNode === catKey ? "is-active" : ""}`,
+          });
+          catNode.createEl("span", { text: `${category} (${catDocs.length})` });
+          catNode.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.selectedTreeNode = catKey;
+            this.render();
+          });
+        }
+      }
+    }
   }
 
   private renderDocList(container: HTMLElement) {
