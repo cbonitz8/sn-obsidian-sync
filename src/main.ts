@@ -40,7 +40,7 @@ export default class SNSyncPlugin extends Plugin {
     await this.loadSettings();
 
     if (!this.settings.instanceUrl || !this.settings.apiPath) {
-      new Notice("SN Sync: Configure your ServiceNow connection in settings.");
+      new Notice("Snobby: Configure your ServiceNow connection in settings.");
     }
 
     // Initialize modules
@@ -114,7 +114,7 @@ export default class SNSyncPlugin extends Plugin {
     // Settings tab
     this.addSettingTab(new SNSyncSettingTab(this.app, this));
 
-    // SN Browser view
+    // Snobby Browser view
     this.registerView(
       VIEW_TYPE_SN_BROWSER,
       (leaf) => new SNBrowserView(leaf, this)
@@ -122,7 +122,7 @@ export default class SNSyncPlugin extends Plugin {
 
     this.addCommand({
       id: "open-sn-browser",
-      name: "Open SN Browser",
+      name: "Open Snobby Browser",
       callback: () => {
         const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SN_BROWSER);
         if (existing.length > 0) {
@@ -179,21 +179,21 @@ export default class SNSyncPlugin extends Plugin {
           ? this.pendingCount
           : 0;
         this.statusBarEl.setText(
-          pendingCount > 0 ? `SN: ${pendingCount} pending` : "SN: synced"
+          pendingCount > 0 ? `SN: ${pendingCount} pending` : "Snobby: synced"
         );
         break;
       }
       case "syncing":
-        this.statusBarEl.setText("SN: syncing...");
+        this.statusBarEl.setText("Snobby: syncing...");
         break;
       case "error":
-        this.statusBarEl.setText("SN: error");
+        this.statusBarEl.setText("Snobby: error");
         break;
       case "offline":
-        this.statusBarEl.setText("SN: offline");
+        this.statusBarEl.setText("Snobby: offline");
         break;
       case "auth-expired":
-        this.statusBarEl.setText("SN: auth expired");
+        this.statusBarEl.setText("Snobby: auth expired");
         break;
     }
   }

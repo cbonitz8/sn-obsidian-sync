@@ -66,7 +66,7 @@ export class AuthManager {
       await this.plugin.saveSettings();
       new Notice("ServiceNow authentication successful!");
     } catch (e) {
-      console.error("SN Sync: OAuth token exchange failed", e);
+      console.error("Snobby: OAuth token exchange failed", e);
       new Notice("Authentication failed. Check your OAuth credentials.");
     }
   }
@@ -97,7 +97,7 @@ export class AuthManager {
       await this.plugin.saveSettings();
       return true;
     } catch (e) {
-      console.error("SN Sync: Token refresh failed", e);
+      console.error("Snobby: Token refresh failed", e);
       new Notice("ServiceNow session expired. Please re-authenticate.");
       return false;
     }

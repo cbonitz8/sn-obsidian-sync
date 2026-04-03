@@ -46,7 +46,7 @@ export class ApiClient {
       }
 
       const json = response.json as Record<string, unknown>;
-      console.log(`SN Sync API [${method} ${path}]:`, JSON.stringify(json).slice(0, 500));
+      console.log(`Snobby API [${method} ${path}]:`, JSON.stringify(json).slice(0, 500));
       // SN scripted REST wraps in { result: ... }. If the script also uses
       // response.setBody({ result: ... }), we get double-nesting: { result: { result: ... } }
       let data = json.result as T;

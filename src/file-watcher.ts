@@ -93,7 +93,7 @@ export class FileWatcher {
       try {
         await this.apiClient.checkout(fm.sys_id);
       } catch (e) {
-        console.error("SN Sync: Auto-checkout failed", e);
+        console.error("Snobby: Auto-checkout failed", e);
       }
     }
   }

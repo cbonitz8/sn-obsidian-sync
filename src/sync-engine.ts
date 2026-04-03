@@ -82,13 +82,13 @@ export class SyncEngine {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.errors.push(msg);
-      console.error("SN Sync: Sync cycle error", e);
+      console.error("Snobby: Sync cycle error", e);
     }
 
     this.isSyncing = false;
     if (result.errors.length > 0) {
-      console.error("SN Sync: Sync errors:", result.errors);
-      new Notice(`SN Sync errors:\n${result.errors.join("\n")}`);
+      console.error("Snobby: Sync errors:", result.errors);
+      new Notice(`Snobby errors:\n${result.errors.join("\n")}`);
     }
     this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
     return result;
@@ -129,8 +129,8 @@ export class SyncEngine {
 
     this.isSyncing = false;
     if (result.errors.length > 0) {
-      console.error("SN Sync: Initial pull errors:", result.errors);
-      new Notice(`SN Sync errors:\n${result.errors.join("\n")}`);
+      console.error("Snobby: Initial pull errors:", result.errors);
+      new Notice(`Snobby errors:\n${result.errors.join("\n")}`);
     }
     this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
     return result;
@@ -158,7 +158,7 @@ export class SyncEngine {
 
       const total = candidates.length;
       new Notice(`Bulk push: ${total} documents to upload`);
-      console.log(`SN Sync: Bulk push starting — ${total} files`);
+      console.log(`Snobby: Bulk push starting — ${total} files`);
 
       for (let i = 0; i < candidates.length; i++) {
         const file = candidates[i]!;
@@ -218,9 +218,9 @@ export class SyncEngine {
     this.isSyncing = false;
     const summary = `Bulk push complete: ${result.pushed} uploaded, ${result.errors.length} errors`;
     new Notice(summary);
-    console.log(`SN Sync: ${summary}`);
+    console.log(`Snobby: ${summary}`);
     if (result.errors.length > 0) {
-      console.error("SN Sync: Bulk push errors:", result.errors);
+      console.error("Snobby: Bulk push errors:", result.errors);
     }
     this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
     return result;
@@ -248,7 +248,7 @@ export class SyncEngine {
 
       const total = candidates.length;
       new Notice(`Bulk update: ${total} documents to re-sync`);
-      console.log(`SN Sync: Bulk update starting — ${total} files`);
+      console.log(`Snobby: Bulk update starting — ${total} files`);
 
       for (let i = 0; i < candidates.length; i++) {
         const file = candidates[i]!;
@@ -291,9 +291,9 @@ export class SyncEngine {
     this.isSyncing = false;
     const summary = `Bulk update complete: ${result.pushed} updated, ${result.errors.length} errors`;
     new Notice(summary);
-    console.log(`SN Sync: ${summary}`);
+    console.log(`Snobby: ${summary}`);
     if (result.errors.length > 0) {
-      console.error("SN Sync: Bulk update errors:", result.errors);
+      console.error("Snobby: Bulk update errors:", result.errors);
     }
     this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
     return result;

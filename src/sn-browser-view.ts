@@ -28,7 +28,7 @@ export class SNBrowserView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "SN Browser";
+    return "Snobby Browser";
   }
 
   getIcon(): string {
@@ -128,7 +128,7 @@ export class SNBrowserView extends ItemView {
 
     if (added > 0) {
       await this.plugin.saveSettings();
-      console.log(`SN Browser: Reconciled ${added} files into docMap`);
+      console.log(`Snobby Browser: Reconciled ${added} files into docMap`);
     }
   }
 
@@ -506,7 +506,7 @@ export class SNBrowserView extends ItemView {
           new Notice(`Downloaded ${count}/${docs.length}...`);
         }
       } catch (e) {
-        console.error(`SN Browser: Failed to download ${doc.title}`, e);
+        console.error(`Snobby Browser: Failed to download ${doc.title}`, e);
       }
     }
 

@@ -195,7 +195,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
 
           try {
             const response = await this.plugin.fetchMetadata();
-            console.log("SN Sync: metadata response", response);
+            console.log("Snobby: metadata response", response);
 
             if (!response || !response.ok || !response.data) {
               metadataContainer.createEl("p", {
@@ -205,7 +205,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
             }
 
             const meta = response.data;
-            console.log("SN Sync: metadata parsed", meta);
+            console.log("Snobby: metadata parsed", meta);
 
             // Categories
             const catSection = metadataContainer.createDiv({ cls: "sn-metadata-section" });
@@ -240,7 +240,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
               tagSection.createEl("p", { text: "No tags yet" });
             }
           } catch (e) {
-            console.error("SN Sync: metadata fetch error", e);
+            console.error("Snobby: metadata fetch error", e);
             metadataContainer.createEl("p", {
               text: `Error: ${e instanceof Error ? e.message : String(e)}`,
             });
