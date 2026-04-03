@@ -19,3 +19,40 @@
   font-size: 0.85em;
   line-height: 1.6;
 }
+
+.sn-routes-reference {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+}
+
+.sn-routes-reference h3 {
+  margin: 0 0 4px;
+  font-size: 0.95em;
+}
+
+.sn-routes-table {
+  width: 100%;
+  font-size: 0.8em;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.sn-routes-table th {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.sn-routes-table td {
+  padding: 3px 8px;
+}
+
+.sn-route-path {
+  font-family: var(--font-monospace);
+  font-size: 0.95em;
+  color: var(--text-accent);
+}
