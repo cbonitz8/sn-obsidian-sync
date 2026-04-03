@@ -105,6 +105,12 @@ export default class SNSyncPlugin extends Plugin {
       callback: () => this.syncEngine.bulkPush(),
     });
 
+    this.addCommand({
+      id: "bulk-update",
+      name: "Bulk update (re-push all synced documents to SN)",
+      callback: () => this.syncEngine.bulkUpdate(),
+    });
+
     // Settings tab
     this.addSettingTab(new SNSyncSettingTab(this.app, this));
 

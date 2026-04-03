@@ -226,6 +226,79 @@ export class SyncEngine {
     return result;
   }
 
+  /** Re-push all synced files to update content in SN (e.g., after format change) */
+  async bulkUpdate(): Promise<SyncResult> {
+    if (this.isSyncing) return { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
+    this.isSyncing = true;
+    this.plugin.updateStatusBar("syncing");
+
+    const result: SyncResult = { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
+
+    try {
+      const allFiles = this.plugin.app.vault.getMarkdownFiles();
+      const candidates: TFile[] = [];
+
+      // Find files with sn_sys_id (already pushed, need content update)
+      for (const file of allFiles) {
+        const fm = await this.frontmatterManager.read(file);
+        if (fm.sys_id) {
+          candidates.push(file);
+        }
+      }
+
+      const total = candidates.length;
+      new Notice(`Bulk update: ${total} documents to re-sync`);
+      console.log(`SN Sync: Bulk update starting — ${total} files`);
+
+      for (let i = 0; i < candidates.length; i++) {
+        const file = candidates[i]!;
+        try {
+          const fm = await this.frontmatterManager.read(file);
+          const content = await this.getFileContent(file);
+
+          const updateResult = await this.apiClient.updateDocument(fm.sys_id!, {
+            title: file.basename,
+            content,
+          });
+
+          if (!updateResult.ok) {
+            result.errors.push(`Failed: ${file.basename} (HTTP ${updateResult.status})`);
+            continue;
+          }
+
+          this.fileWatcher.addSyncWritePath(file.path);
+          await this.frontmatterManager.markSynced(file);
+          this.fileWatcher.removeSyncWritePath(file.path);
+
+          result.pushed++;
+
+          if ((i + 1) % 10 === 0) {
+            new Notice(`Bulk update: ${i + 1}/${total} updated`);
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          result.errors.push(`Error: ${file.basename} — ${msg}`);
+        }
+      }
+
+      this.plugin.syncState.lastSyncTimestamp = new Date().toISOString();
+      await this.plugin.saveSettings();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.errors.push(msg);
+    }
+
+    this.isSyncing = false;
+    const summary = `Bulk update complete: ${result.pushed} updated, ${result.errors.length} errors`;
+    new Notice(summary);
+    console.log(`SN Sync: ${summary}`);
+    if (result.errors.length > 0) {
+      console.error("SN Sync: Bulk update errors:", result.errors);
+    }
+    this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
+    return result;
+  }
+
   // --- Pull Phase ---
 
   private async pull(result: SyncResult) {
