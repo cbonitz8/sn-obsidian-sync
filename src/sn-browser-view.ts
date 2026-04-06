@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, Menu } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Menu, TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata } from "./types";
 
@@ -51,8 +51,10 @@ export class SNBrowserView extends ItemView {
       text: "Browse SN",
       cls: `sn-browser-tab ${this.activeTab === "browse" ? "is-active" : ""}`,
     });
+    const conflictCount = Object.keys(this.plugin.syncState.conflicts).length;
+    const settingsLabel = conflictCount > 0 ? `Sync Settings (${conflictCount})` : "Sync Settings";
     const settingsTab = tabBar.createEl("button", {
-      text: "Sync Settings",
+      text: settingsLabel,
       cls: `sn-browser-tab ${this.activeTab === "settings" ? "is-active" : ""}`,
     });
 
@@ -75,7 +77,7 @@ export class SNBrowserView extends ItemView {
   }
 
   private async fetchData() {
-    if (this.serverDocs.length > 0) return; // use cache
+    if (this.isLoading || this.serverDocs.length > 0) return;
     this.isLoading = true;
 
     const [docsResponse, metaResponse] = await Promise.all([
@@ -116,6 +118,8 @@ export class SNBrowserView extends ItemView {
         sysId,
         path: file.path,
         lastServerTimestamp: "",
+        lockedBy: "",
+        lockedAt: "",
       };
       trackedIds.add(sysId);
       added++;
@@ -124,6 +128,38 @@ export class SNBrowserView extends ItemView {
     if (added > 0) {
       await this.plugin.saveSettings();
       console.log(`Snobby Browser: Reconciled ${added} files into docMap`);
+    }
+  }
+
+  private renderLockBanner(container: HTMLElement) {
+    const username = this.plugin.settings.username;
+    const lockedByOthers: { name: string; lockedBy: string }[] = [];
+
+    for (const doc of this.serverDocs) {
+      if (!doc.checked_out_by) continue;
+      if (username && doc.checked_out_by === username) continue;
+      const entry = this.plugin.syncState.docMap[doc.sys_id];
+      if (!entry) continue;
+      lockedByOthers.push({ name: doc.title, lockedBy: doc.checked_out_by });
+    }
+
+    if (lockedByOthers.length === 0) return;
+
+    const byUser = new Map<string, string[]>();
+    for (const item of lockedByOthers) {
+      if (!byUser.has(item.lockedBy)) byUser.set(item.lockedBy, []);
+      byUser.get(item.lockedBy)!.push(item.name);
+    }
+
+    const banner = container.createDiv({ cls: "sn-lock-banner" });
+    banner.createEl("span", { text: "🔒", cls: "sn-lock-banner-icon" });
+    const body = banner.createDiv({ cls: "sn-lock-banner-body" });
+
+    for (const [user, files] of byUser) {
+      const line = body.createDiv({ cls: "sn-lock-banner-line" });
+      line.createEl("strong", { text: user });
+      line.appendText(` has ${files.length} file${files.length > 1 ? "s" : ""} checked out: `);
+      line.createEl("span", { text: files.join(", "), cls: "sn-lock-banner-files" });
     }
   }
 
@@ -163,6 +199,8 @@ export class SNBrowserView extends ItemView {
       container.createEl("p", { text: "No documents found. Check your connection settings." });
       return;
     }
+
+    this.renderLockBanner(container);
 
     const filterBar = container.createDiv({ cls: "sn-filter-bar" });
 
@@ -231,11 +269,102 @@ export class SNBrowserView extends ItemView {
     const totalLocal = Object.keys(this.plugin.syncState.docMap).length;
     const excludeCount = this.plugin.settings.excludePaths.length;
 
+    const conflicts = this.plugin.conflictResolver.getAllConflicts();
+
     stats.createEl("h3", { text: "Sync Overview" });
     const statGrid = stats.createDiv({ cls: "sn-stat-grid" });
     statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${totalServer}</span><span class="sn-stat-label">On Server</span>`;
     statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${totalLocal}</span><span class="sn-stat-label">Downloaded</span>`;
     statGrid.createDiv({ cls: "sn-stat" }).innerHTML = `<span class="sn-stat-value">${excludeCount}</span><span class="sn-stat-label">Excluded Paths</span>`;
+    const conflictStat = statGrid.createDiv({ cls: "sn-stat" });
+    conflictStat.innerHTML = `<span class="sn-stat-value${conflicts.length > 0 ? " sn-stat-warning" : ""}">${conflicts.length}</span><span class="sn-stat-label">Conflicts</span>`;
+
+    const dangerSection = container.createDiv({ cls: "sn-exclude-section" });
+    dangerSection.createEl("h3", { text: "Reset & Re-pull" });
+    dangerSection.createEl("p", {
+      text: "Delete all synced files and re-download from ServiceNow. Use after changing folder mapping or to fix misplaced files.",
+      cls: "sn-exclude-desc",
+    });
+    const repullBtn = dangerSection.createEl("button", {
+      text: "Delete All & Re-pull",
+      cls: "sn-action-btn sn-action-btn-danger",
+    });
+    repullBtn.addEventListener("click", async () => {
+      const count = Object.keys(this.plugin.syncState.docMap).length;
+      if (count === 0) {
+        new Notice("No synced files to delete.");
+        return;
+      }
+      const confirmed = confirm(
+        `This will delete ${count} local synced file${count > 1 ? "s" : ""} and re-download them from ServiceNow using the current folder mapping.\n\nLocal-only files (not yet pushed) will NOT be affected.\n\nContinue?`
+      );
+      if (!confirmed) return;
+
+      repullBtn.setText("Deleting & re-pulling...");
+      repullBtn.setAttr("disabled", "true");
+      await this.plugin.syncEngine.deleteAllAndRepull();
+      this.serverDocs = [];
+      this.metadata = null;
+      this.render();
+    });
+
+    const conflictSection = container.createDiv({ cls: "sn-conflict-section" });
+    conflictSection.createEl("h3", { text: "Conflicts" });
+
+    if (conflicts.length === 0) {
+      conflictSection.createEl("p", { text: "No conflicts.", cls: "sn-conflict-empty" });
+    } else {
+      const conflictActions = conflictSection.createDiv({ cls: "sn-conflict-actions" });
+      const clearStaleBtn = conflictActions.createEl("button", { text: "Clear Stale Conflicts", cls: "sn-action-btn" });
+      clearStaleBtn.addEventListener("click", async () => {
+        const cleared = await this.plugin.conflictResolver.clearStaleConflicts();
+        new Notice(cleared > 0
+          ? `Cleared ${cleared} stale conflict${cleared > 1 ? "s" : ""}`
+          : "No stale conflicts found");
+        this.render();
+      });
+      const dismissAllBtn = conflictActions.createEl("button", { text: "Dismiss All", cls: "sn-action-btn sn-action-btn-danger" });
+      dismissAllBtn.addEventListener("click", async () => {
+        await this.plugin.conflictResolver.clearAllConflicts();
+        new Notice("All conflicts dismissed");
+        this.render();
+      });
+
+      const conflictList = conflictSection.createDiv({ cls: "sn-conflict-list" });
+      for (const conflict of conflicts) {
+        const fileName = conflict.path.split("/").pop() ?? conflict.path;
+        const row = conflictList.createDiv({ cls: "sn-conflict-row" });
+
+        const info = row.createDiv({ cls: "sn-conflict-info" });
+        info.createEl("span", { text: fileName, cls: "sn-conflict-name" });
+        const meta = info.createDiv({ cls: "sn-conflict-meta" });
+        if (conflict.remoteTimestamp) {
+          meta.createEl("span", { text: `Remote: ${conflict.remoteTimestamp.split(" ")[0]}` });
+        }
+        if (conflict.lockedBy) {
+          meta.createEl("span", { text: `Locked by: ${conflict.lockedBy}` });
+        }
+
+        const actions = row.createDiv({ cls: "sn-conflict-row-actions" });
+        const openBtn = actions.createEl("button", { text: "Open", cls: "sn-action-btn" });
+        openBtn.addEventListener("click", () => {
+          const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
+          if (file) {
+            this.plugin.app.workspace.getLeaf(false).openFile(file as TFile);
+          }
+        });
+        const pullBtn = actions.createEl("button", { text: "Pull Remote", cls: "sn-action-btn mod-cta" });
+        pullBtn.addEventListener("click", async () => {
+          await this.plugin.conflictResolver.resolveWithPull(conflict.sysId);
+          this.render();
+        });
+        const pushBtn = actions.createEl("button", { text: "Push Local", cls: "sn-action-btn" });
+        pushBtn.addEventListener("click", async () => {
+          await this.plugin.conflictResolver.resolveWithPush(conflict.sysId);
+          this.render();
+        });
+      }
+    }
 
     const excludeSection = container.createDiv({ cls: "sn-exclude-section" });
     excludeSection.createEl("h3", { text: "Excluded from Sync" });
@@ -448,7 +577,7 @@ export class SNBrowserView extends ItemView {
         if (entry) {
           const file = this.plugin.app.vault.getAbstractFileByPath(entry.path);
           if (file) {
-            this.plugin.app.workspace.getLeaf(false).openFile(file as any);
+            this.plugin.app.workspace.getLeaf(false).openFile(file as TFile);
           }
         }
       });

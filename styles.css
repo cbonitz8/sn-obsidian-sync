@@ -93,6 +93,7 @@
   font-family: var(--font-monospace);
   font-size: 0.95em;
   color: var(--text-accent);
+}
 
 .sn-browser {
   display: flex;
@@ -406,3 +407,143 @@
   font-size: 0.85em;
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* Lock notice (persistent toast) */
+.sn-lock-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sn-lock-notice-title {
+  font-weight: 600;
+  color: var(--text-error);
+}
+
+.sn-lock-notice-body {
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+/* Lock banner (browser view) */
+.sn-lock-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--background-modifier-error);
+  border: 1px solid var(--text-error);
+  border-radius: 6px;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.sn-lock-banner-icon {
+  flex-shrink: 0;
+  font-size: 1em;
+}
+
+.sn-lock-banner-body {
+  flex: 1;
+}
+
+.sn-lock-banner-line {
+  margin-bottom: 2px;
+}
+
+.sn-lock-banner-files {
+  color: var(--text-muted);
+}
+
+/* Conflict notice (persistent toast) */
+.sn-conflict-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sn-conflict-notice-title {
+  font-weight: 600;
+  color: var(--color-orange);
+}
+
+.sn-conflict-notice-body {
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+/* Conflict section (browser settings tab) */
+.sn-conflict-section {
+  margin-top: 16px;
+}
+
+.sn-conflict-empty {
+  font-size: 0.85em;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.sn-conflict-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.sn-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sn-conflict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  border-left: 3px solid var(--color-orange);
+}
+
+.sn-conflict-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.sn-conflict-name {
+  font-weight: 500;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sn-conflict-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sn-conflict-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.sn-stat-warning {
+  color: var(--color-orange);
+}
+
+.sn-action-btn-danger {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+
+.sn-action-btn-danger:hover {
+  background: var(--background-modifier-error);
+}

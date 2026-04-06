@@ -4,7 +4,17 @@ import type { SNSyncSettings, FolderMapping } from "./types";
 
 export const DEFAULT_FOLDER_MAPPING: FolderMapping = {
   projects: true,
-  categories: {},
+  categories: {
+    session_log: "Session Logs",
+    design_spec: "Design Specs",
+    project_overview: "",
+    daily_log: { root: "Daily Logs", subfolders: [], topLevel: true },
+    meta: { root: "Meta", subfolders: [], topLevel: true },
+    reference: { root: "Resources", subfolders: ["Components"], topLevel: true },
+    css: { root: "Resources", subfolders: ["CSS"], topLevel: true },
+    standup: { root: "Standups", subfolders: [], topLevel: true },
+    team_dashboard: { root: "Team Dashboard", subfolders: [], topLevel: true },
+  },
   custom: [],
 };
 
@@ -23,6 +33,7 @@ export const DEFAULT_SETTINGS: SNSyncSettings = {
   remoteDeleteBehavior: "delete local",
   folderMapping: DEFAULT_FOLDER_MAPPING,
   excludePaths: [],
+  username: "",
 };
 
 export class SNSyncSettingTab extends PluginSettingTab {
@@ -171,6 +182,19 @@ export class SNSyncSettingTab extends PluginSettingTab {
         button.setButtonText("Authenticate").onClick(async () => {
           this.plugin.authManager?.startOAuthFlow();
         })
+      );
+
+    new Setting(containerEl)
+      .setName("Your ServiceNow display name")
+      .setDesc("Used to identify which locks are yours. Must match your SN display name.")
+      .addText((text) =>
+        text
+          .setPlaceholder("e.g. Caleb Bonitz")
+          .setValue(this.plugin.settings.username)
+          .onChange(async (value) => {
+            this.plugin.settings.username = value;
+            await this.plugin.saveSettings();
+          })
       );
 
     containerEl.createEl("h2", { text: "ServiceNow Data" });

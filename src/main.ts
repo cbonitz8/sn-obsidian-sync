@@ -1,6 +1,6 @@
 import { Notice, Plugin } from "obsidian";
 import { SNBrowserView, VIEW_TYPE_SN_BROWSER } from "./sn-browser-view";
-import { DEFAULT_SETTINGS, SNSyncSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, DEFAULT_FOLDER_MAPPING, SNSyncSettingTab } from "./settings";
 import { AuthManager } from "./auth-manager";
 import { ApiClient } from "./api-client";
 import { FrontmatterManager } from "./frontmatter-manager";
@@ -13,6 +13,7 @@ const DEFAULT_SYNC_STATE: SyncState = {
   lastSyncTimestamp: "",
   ignoredIds: [],
   docMap: {},
+  conflicts: {},
 };
 
 const DEFAULT_AUTH: AuthTokens = {
@@ -29,12 +30,14 @@ export default class SNSyncPlugin extends Plugin {
   authTokens!: AuthTokens;
   authManager!: AuthManager;
   apiClient!: ApiClient;
-  private frontmatterManager!: FrontmatterManager;
-  private fileWatcher!: FileWatcher;
-  private conflictResolver!: ConflictResolver;
+  frontmatterManager!: FrontmatterManager;
+  fileWatcher!: FileWatcher;
+  conflictResolver!: ConflictResolver;
   syncEngine!: SyncEngine;
   private statusBarEl: HTMLElement | null = null;
   private pendingCount = 0;
+  private activeLockNotice: Notice | null = null;
+  private activeConflictNotice: Notice | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -55,7 +58,7 @@ export default class SNSyncPlugin extends Plugin {
       this.settings.frontmatterPrefix
     );
     this.fileWatcher = new FileWatcher(this, this.frontmatterManager, this.apiClient);
-    this.conflictResolver = new ConflictResolver(this.app, this.frontmatterManager);
+    this.conflictResolver = new ConflictResolver(this);
     this.syncEngine = new SyncEngine(
       this,
       this.apiClient,
@@ -105,6 +108,56 @@ export default class SNSyncPlugin extends Plugin {
       callback: () => this.syncEngine.bulkUpdate(),
     });
 
+    this.addCommand({
+      id: "resolve-pull-remote",
+      name: "Resolve conflict: pull remote",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return false;
+        const conflict = this.conflictResolver.getConflictForPath(file.path);
+        if (!conflict) return false;
+        if (checking) return true;
+        this.conflictResolver.resolveWithPull(conflict.sysId);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "resolve-push-local",
+      name: "Resolve conflict: push local",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return false;
+        const conflict = this.conflictResolver.getConflictForPath(file.path);
+        if (!conflict) return false;
+        if (checking) return true;
+        this.conflictResolver.resolveWithPush(conflict.sysId);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "clear-stale-conflicts",
+      name: "Clear stale conflicts",
+      callback: async () => {
+        const cleared = await this.conflictResolver.clearStaleConflicts();
+        new Notice(cleared > 0
+          ? `Snobby: cleared ${cleared} stale conflict${cleared > 1 ? "s" : ""}`
+          : "Snobby: no stale conflicts found");
+      },
+    });
+
+    this.addCommand({
+      id: "dismiss-all-conflicts",
+      name: "Dismiss all conflicts",
+      callback: async () => {
+        const cleared = await this.conflictResolver.clearAllConflicts();
+        new Notice(cleared > 0
+          ? `Snobby: dismissed ${cleared} conflict${cleared > 1 ? "s" : ""}`
+          : "Snobby: no conflicts to dismiss");
+      },
+    });
+
     this.addSettingTab(new SNSyncSettingTab(this.app, this));
 
     this.registerView(
@@ -128,6 +181,20 @@ export default class SNSyncPlugin extends Plugin {
 
     this.fileWatcher.start();
     this.syncEngine.start();
+    this.conflictResolver.migrateMarkerFiles();
+
+    this.conflictResolver.clearStaleConflicts().then((cleared) => {
+      if (cleared > 0) {
+        new Notice(`Snobby: cleared ${cleared} stale conflict${cleared > 1 ? "s" : ""}`);
+      }
+    });
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.checkActiveLockState();
+        this.checkActiveConflictState();
+      })
+    );
   }
 
   async onunload() {
@@ -140,6 +207,13 @@ export default class SNSyncPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
     this.syncState = Object.assign({}, DEFAULT_SYNC_STATE, data.syncState);
     this.authTokens = Object.assign({}, DEFAULT_AUTH, data.auth);
+
+    const saved = this.settings.folderMapping;
+    saved.categories = Object.assign(
+      {},
+      DEFAULT_FOLDER_MAPPING.categories,
+      saved.categories
+    );
   }
 
   async saveSettings() {
@@ -175,7 +249,7 @@ export default class SNSyncPlugin extends Plugin {
         break;
       }
       case "syncing":
-        this.statusBarEl.setText("Snobby: syncing...");
+        this.statusBarEl.setText(`Snobby: syncing...`);
         break;
       case "error":
         this.statusBarEl.setText("Snobby: error");
@@ -191,5 +265,66 @@ export default class SNSyncPlugin extends Plugin {
 
   setPendingCount(count: number) {
     this.pendingCount = count;
+  }
+
+  private checkActiveLockState() {
+    if (this.activeLockNotice) {
+      this.activeLockNotice.hide();
+      this.activeLockNotice = null;
+    }
+
+    const file = this.app.workspace.getActiveFile();
+    if (!file) return;
+
+    const entry = Object.values(this.syncState.docMap).find((e) => e.path === file.path);
+    if (!entry?.lockedBy) return;
+
+    const username = this.settings.username;
+    if (username && entry.lockedBy === username) return;
+
+    const frag = document.createDocumentFragment();
+    const container = frag.createEl("div", { cls: "sn-lock-notice" });
+    container.createEl("div", { text: "Locked on ServiceNow", cls: "sn-lock-notice-title" });
+    container.createEl("div", {
+      text: `"${file.basename}" is checked out by ${entry.lockedBy}. Your edits won't sync until the lock is released.`,
+      cls: "sn-lock-notice-body",
+    });
+
+    this.activeLockNotice = new Notice(frag, 0);
+  }
+
+  private checkActiveConflictState() {
+    if (this.activeConflictNotice) {
+      this.activeConflictNotice.hide();
+      this.activeConflictNotice = null;
+    }
+
+    const file = this.app.workspace.getActiveFile();
+    if (!file) return;
+
+    const conflict = this.conflictResolver.getConflictForPath(file.path);
+    if (!conflict) return;
+
+    const frag = document.createDocumentFragment();
+    const container = frag.createEl("div", { cls: "sn-conflict-notice" });
+    container.createEl("div", { text: "Sync Conflict", cls: "sn-conflict-notice-title" });
+    container.createEl("div", {
+      text: `"${file.basename}" has conflicting remote changes. Use the command palette to resolve: pull remote or push local.`,
+      cls: "sn-conflict-notice-body",
+    });
+
+    this.activeConflictNotice = new Notice(frag, 0);
+  }
+
+  updateSyncProgress(pulled: number, pushed: number) {
+    if (!this.statusBarEl) return;
+    const parts: string[] = [];
+    if (pulled > 0) parts.push(`${pulled} pulled`);
+    if (pushed > 0) parts.push(`${pushed} pushed`);
+    this.statusBarEl.setText(
+      parts.length > 0
+        ? `Snobby: syncing... (${parts.join(", ")})`
+        : "Snobby: syncing..."
+    );
   }
 }

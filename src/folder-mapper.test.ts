@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveFilePath, inferMetadataFromPath, sanitizeTitle } from "./folder-mapper";
+import { resolveFilePath, sanitizeTitle } from "./folder-mapper";
 import type { FolderMapping } from "./types";
 
 const MAPPING: FolderMapping = {
@@ -7,11 +7,14 @@ const MAPPING: FolderMapping = {
   categories: {
     session_log: "Session Logs",
     design_spec: "Design Specs",
+    project_overview: "",
     qa_document: {
       root: "QA",
       subfolders: ["In Progress", "Complete"],
     },
-    reference: "Resources",
+    daily_log: { root: "Daily Logs", subfolders: [], topLevel: true },
+    standup: { root: "Standups", subfolders: [], topLevel: true },
+    reference: { root: "Resources", subfolders: ["Components"], topLevel: true },
   },
   custom: [
     { path: "Resources/Reusable Components/Widgets", tag: "widget" },
@@ -48,36 +51,25 @@ describe("resolveFilePath", () => {
     const result = resolveFilePath(MAPPING, "eg-select", "", "", "widget");
     expect(result).toBe("Resources/Reusable Components/Widgets/eg-select.md");
   });
-});
 
-describe("inferMetadataFromPath", () => {
-  it("infers project and category from path", () => {
-    const result = inferMetadataFromPath("Project Alpha/Session Logs/My Doc.md", MAPPING);
-    expect(result.project).toBe("Project Alpha");
-    expect(result.category).toBe("session_log");
+  it("places topLevel category at vault root even with a project", () => {
+    const result = resolveFilePath(MAPPING, "ATS import notes", "ATS", "daily_log", "");
+    expect(result).toBe("Daily Logs/ATS import notes.md");
   });
 
-  it("infers project only when no category folder", () => {
-    const result = inferMetadataFromPath("Project Alpha/overview.md", MAPPING);
-    expect(result.project).toBe("Project Alpha");
-    expect(result.category).toBe("");
+  it("places standup at vault root ignoring project", () => {
+    const result = resolveFilePath(MAPPING, "Standup", "Ethos MD", "standup", "");
+    expect(result).toBe("Standups/Standup.md");
   });
 
-  it("infers category only when no project folder", () => {
-    const result = inferMetadataFromPath("Design Specs/My Doc.md", MAPPING);
-    expect(result.project).toBe("");
-    expect(result.category).toBe("design_spec");
+  it("places reference doc in Resources/Components at vault root", () => {
+    const result = resolveFilePath(MAPPING, "Ethos Table", "Ethos MD", "reference", "");
+    expect(result).toBe("Resources/Components/Ethos Table.md");
   });
 
-  it("infers custom tag from path", () => {
-    const result = inferMetadataFromPath("Resources/Reusable Components/Widgets/eg-select.md", MAPPING);
-    expect(result.tag).toBe("widget");
-  });
-
-  it("returns empty for file at vault root", () => {
-    const result = inferMetadataFromPath("random.md", MAPPING);
-    expect(result.project).toBe("");
-    expect(result.category).toBe("");
+  it("places project overview at project root", () => {
+    const result = resolveFilePath(MAPPING, "Ethos MD Overview", "Ethos MD", "project_overview", "");
+    expect(result).toBe("Ethos MD/Ethos MD Overview.md");
   });
 });
 
