@@ -4,7 +4,17 @@ import type { SNSyncSettings, FolderMapping } from "./types";
 
 export const DEFAULT_FOLDER_MAPPING: FolderMapping = {
   projects: true,
-  categories: {},
+  categories: {
+    session_log: "Session Logs",
+    design_spec: "Design Specs",
+    project_overview: "",
+    daily_log: { root: "Daily Logs", subfolders: [], topLevel: true },
+    meta: { root: "Meta", subfolders: [], topLevel: true },
+    reference: { root: "Resources", subfolders: ["Components"], topLevel: true },
+    css: { root: "Resources", subfolders: ["CSS"], topLevel: true },
+    standup: { root: "Standups", subfolders: [], topLevel: true },
+    team_dashboard: { root: "Team Dashboard", subfolders: [], topLevel: true },
+  },
   custom: [],
 };
 

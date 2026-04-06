@@ -86,15 +86,19 @@ export class FileWatcher {
       const entry = this.plugin.syncState.docMap[fm.sys_id];
       const username = this.plugin.settings.username;
       if (entry?.lockedBy && (!username || entry.lockedBy !== username)) {
-        new Notice(`"${file.basename}" is locked by ${entry.lockedBy}. Your edits won't sync until the lock is released.`);
+        const frag = document.createDocumentFragment();
+        const container = frag.createEl("div", { cls: "sn-lock-notice" });
+        container.createEl("div", { text: "Locked on ServiceNow", cls: "sn-lock-notice-title" });
+        container.createEl("div", {
+          text: `"${file.basename}" is checked out by ${entry.lockedBy}. Your edits won't sync until the lock is released.`,
+          cls: "sn-lock-notice-body",
+        });
+        new Notice(frag, 0);
         return;
       }
 
       try {
-        const result = await this.apiClient.checkout(fm.sys_id);
-        if (result.ok) {
-          new Notice(`Locked "${file.basename}" on ServiceNow`);
-        }
+        await this.apiClient.checkout(fm.sys_id);
       } catch (e) {
         console.error("Snobby: Auto-checkout failed", e);
       }

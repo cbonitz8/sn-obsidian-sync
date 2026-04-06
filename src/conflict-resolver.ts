@@ -67,9 +67,16 @@ export class ConflictResolver {
     }
 
     const tFile = file as TFile;
+    const fm = await this.plugin.frontmatterManager.read(tFile);
     this.plugin.fileWatcher.addSyncWritePath(conflict.path);
     await this.plugin.app.vault.modify(tFile, conflict.remoteContent);
-    await this.plugin.frontmatterManager.markSynced(tFile);
+    await this.plugin.frontmatterManager.write(tFile, {
+      sys_id: fm.sys_id ?? sysId,
+      category: fm.category,
+      project: fm.project,
+      tags: fm.tags,
+      synced: true,
+    });
     this.plugin.fileWatcher.removeSyncWritePath(conflict.path);
 
     try {
@@ -119,6 +126,55 @@ export class ConflictResolver {
       if (conflict.path === path) return conflict;
     }
     return null;
+  }
+
+  getAllConflicts(): ConflictEntry[] {
+    return Object.values(this.plugin.syncState.conflicts);
+  }
+
+  async clearStaleConflicts(): Promise<number> {
+    let cleared = 0;
+
+    for (const [sysId, conflict] of Object.entries(this.plugin.syncState.conflicts)) {
+      const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
+      if (!file) {
+        delete this.plugin.syncState.conflicts[sysId];
+        cleared++;
+        continue;
+      }
+
+      const raw = await this.plugin.app.vault.read(file as TFile);
+      const localBody = this.stripFrontmatter(raw);
+      const remoteBody = this.stripFrontmatter(conflict.remoteContent);
+      if (localBody === remoteBody) {
+        delete this.plugin.syncState.conflicts[sysId];
+        this.plugin.fileWatcher.addSyncWritePath(conflict.path);
+        await this.plugin.frontmatterManager.markSynced(file as TFile);
+        this.plugin.fileWatcher.removeSyncWritePath(conflict.path);
+        cleared++;
+      }
+    }
+
+    if (cleared > 0) {
+      await this.plugin.saveSettings();
+    }
+    return cleared;
+  }
+
+  async clearAllConflicts(): Promise<number> {
+    const count = Object.keys(this.plugin.syncState.conflicts).length;
+    if (count === 0) return 0;
+
+    this.plugin.syncState.conflicts = {};
+    await this.plugin.saveSettings();
+    return count;
+  }
+
+  stripFrontmatter(raw: string): string {
+    if (!raw.startsWith("---")) return raw;
+    const endIdx = raw.indexOf("\n---", 3);
+    if (endIdx === -1) return raw;
+    return raw.slice(endIdx + 4).replace(/^\n+/, "");
   }
 
   async migrateMarkerFiles() {

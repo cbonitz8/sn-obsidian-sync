@@ -84,6 +84,13 @@ export class SyncEngine {
       if (result.errors.length > 0) {
         console.error("Snobby: Sync errors:", result.errors);
         new Notice(`Snobby errors:\n${result.errors.join("\n")}`);
+      } else {
+        const parts: string[] = [];
+        if (result.pulled > 0) parts.push(`${result.pulled} pulled`);
+        if (result.pushed > 0) parts.push(`${result.pushed} pushed`);
+        const totalConflicts = Object.keys(this.plugin.syncState.conflicts).length;
+        if (totalConflicts > 0) parts.push(`${totalConflicts} conflict${totalConflicts > 1 ? "s" : ""}`);
+        new Notice(parts.length > 0 ? `Snobby: ${parts.join(", ")}` : "Snobby: everything up to date");
       }
       this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
     }
@@ -131,6 +138,51 @@ export class SyncEngine {
     return result;
   }
 
+  async deleteAllAndRepull(): Promise<SyncResult> {
+    if (this.isSyncing) return { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
+    this.isSyncing = true;
+    this.plugin.updateStatusBar("syncing");
+
+    const result: SyncResult = { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
+
+    try {
+      const docMap = this.plugin.syncState.docMap;
+      const entries = Object.values(docMap);
+      let deleted = 0;
+
+      for (const entry of entries) {
+        const file = this.plugin.app.vault.getAbstractFileByPath(entry.path);
+        if (file instanceof TFile) {
+          this.fileWatcher.addSyncWritePath(entry.path);
+          await this.plugin.app.vault.delete(file);
+          this.fileWatcher.removeSyncWritePath(entry.path);
+          deleted++;
+        }
+      }
+
+      this.plugin.syncState.docMap = {};
+      this.plugin.syncState.conflicts = {};
+      this.plugin.syncState.lastSyncTimestamp = "";
+      await this.plugin.saveSettings();
+
+      new Notice(`Deleted ${deleted} local files. Re-pulling from ServiceNow...`);
+
+      const pullResult = await this.initialPull();
+      result.pulled = pullResult.pulled;
+      result.errors = pullResult.errors;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.errors.push(msg);
+    } finally {
+      this.isSyncing = false;
+      const summary = `Re-pull complete: ${result.pulled} downloaded, ${result.errors.length} errors`;
+      new Notice(summary);
+      console.log(`Snobby: ${summary}`);
+      this.plugin.updateStatusBar(result.errors.length > 0 ? "error" : "idle");
+    }
+    return result;
+  }
+
   async bulkPush(): Promise<SyncResult> {
     if (this.isSyncing) return { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
     this.isSyncing = true;
@@ -157,7 +209,7 @@ export class SyncEngine {
         const file = candidates[i]!;
         try {
           const fm = await this.frontmatterManager.read(file);
-          const content = await this.getFileContent(file);
+          const content = await this.getContentForPush(file);
 
           const createResult = await this.apiClient.createDocument({
             title: file.basename,
@@ -243,7 +295,7 @@ export class SyncEngine {
         const file = candidates[i]!;
         try {
           const fm = await this.frontmatterManager.read(file);
-          const content = await this.getFileContent(file);
+          const content = await this.getContentForPush(file);
 
           const updateResult = await this.apiClient.updateDocument(fm.sys_id!, {
             title: file.basename,
@@ -331,9 +383,9 @@ export class SyncEngine {
         return;
       }
 
-      // sys_updated_on can bump for non-content reasons, so compare actual content
-      const localContent = await this.getFileContent(file);
-      const contentChanged = localContent !== doc.content;
+      // sys_updated_on can bump for non-content reasons, so compare actual body content
+      const localBody = await this.getBodyContent(file);
+      const contentChanged = localBody !== this.stripFrontmatter(doc.content);
 
       if (!contentChanged) {
         mapEntry.lastServerTimestamp = doc.sys_updated_on;
@@ -345,6 +397,13 @@ export class SyncEngine {
         } else {
           this.fileWatcher.addSyncWritePath(file.path);
           await this.plugin.app.vault.modify(file, doc.content);
+          await this.frontmatterManager.write(file, {
+            sys_id: fm.sys_id,
+            category: fm.category,
+            project: fm.project,
+            tags: fm.tags,
+            synced: true,
+          });
           this.fileWatcher.removeSyncWritePath(file.path);
           mapEntry.lastServerTimestamp = doc.sys_updated_on;
           result.pulled++;
@@ -403,7 +462,7 @@ export class SyncEngine {
 
   private async handlePushFile(file: TFile, result: SyncResult) {
     const fm = await this.frontmatterManager.read(file);
-    const content = await this.getFileContent(file);
+    const content = await this.getContentForPush(file);
 
     if (fm.sys_id && this.plugin.syncState.conflicts[fm.sys_id]) return;
     if (this.conflictResolver.getConflictForPath(file.path)) return;
@@ -437,7 +496,7 @@ export class SyncEngine {
         if (updateResult.status === 409) {
           const latest = await this.apiClient.getDocument(fm.sys_id);
           if (latest.ok && latest.data) {
-            if (latest.data.content === content) {
+            if (this.stripFrontmatter(latest.data.content) === this.stripFrontmatter(content)) {
               await this.apiClient.checkin(fm.sys_id);
               this.fileWatcher.addSyncWritePath(file.path);
               await this.frontmatterManager.markSynced(file);
@@ -473,7 +532,6 @@ export class SyncEngine {
         entry.lockedAt = "";
       }
 
-      new Notice(`Unlocked "${file.basename}" on ServiceNow`);
       result.pushed++;
     } else {
       let category = fm.category ?? "";
@@ -578,6 +636,17 @@ export class SyncEngine {
 
     this.fileWatcher.addSyncWritePath(finalPath);
     await this.plugin.app.vault.create(finalPath, doc.content);
+
+    const createdFile = this.plugin.app.vault.getAbstractFileByPath(finalPath);
+    if (createdFile instanceof TFile) {
+      await this.frontmatterManager.write(createdFile, {
+        sys_id: doc.sys_id,
+        category: doc.category,
+        project: doc.project,
+        tags: doc.tags,
+        synced: true,
+      });
+    }
     this.fileWatcher.removeSyncWritePath(finalPath);
 
     this.plugin.syncState.docMap[doc.sys_id] = {
@@ -615,7 +684,39 @@ export class SyncEngine {
     return candidate;
   }
 
-  private async getFileContent(file: TFile): Promise<string> {
-    return this.plugin.app.vault.read(file);
+  private stripFrontmatter(content: string): string {
+    if (!content.startsWith("---")) return content;
+    const endIdx = content.indexOf("\n---", 3);
+    if (endIdx === -1) return content;
+    return content.slice(endIdx + 4).replace(/^\n+/, "");
+  }
+
+  private async getBodyContent(file: TFile): Promise<string> {
+    const raw = await this.plugin.app.vault.read(file);
+    return this.stripFrontmatter(raw);
+  }
+
+  private async getContentForPush(file: TFile): Promise<string> {
+    const raw = await this.plugin.app.vault.read(file);
+    if (!raw.startsWith("---")) return raw;
+    const endIdx = raw.indexOf("\n---", 3);
+    if (endIdx === -1) return raw;
+
+    const fmBlock = raw.substring(4, endIdx);
+    const body = raw.slice(endIdx + 4);
+    const prefix = this.plugin.settings.frontmatterPrefix;
+
+    const filteredLines = fmBlock.split("\n").filter((line) => {
+      const match = line.match(/^(\S+)\s*:/);
+      if (!match) return true;
+      return !match[1]!.startsWith(prefix);
+    });
+
+    const hasContent = filteredLines.some((line) => line.trim().length > 0);
+    if (!hasContent) {
+      return body.replace(/^\n+/, "");
+    }
+
+    return "---\n" + filteredLines.join("\n") + "\n---" + body;
   }
 }

@@ -7,11 +7,14 @@ const MAPPING: FolderMapping = {
   categories: {
     session_log: "Session Logs",
     design_spec: "Design Specs",
+    project_overview: "",
     qa_document: {
       root: "QA",
       subfolders: ["In Progress", "Complete"],
     },
-    reference: "Resources",
+    daily_log: { root: "Daily Logs", subfolders: [], topLevel: true },
+    standup: { root: "Standups", subfolders: [], topLevel: true },
+    reference: { root: "Resources", subfolders: ["Components"], topLevel: true },
   },
   custom: [
     { path: "Resources/Reusable Components/Widgets", tag: "widget" },
@@ -47,6 +50,26 @@ describe("resolveFilePath", () => {
   it("uses custom tag mapping when tag matches", () => {
     const result = resolveFilePath(MAPPING, "eg-select", "", "", "widget");
     expect(result).toBe("Resources/Reusable Components/Widgets/eg-select.md");
+  });
+
+  it("places topLevel category at vault root even with a project", () => {
+    const result = resolveFilePath(MAPPING, "ATS import notes", "ATS", "daily_log", "");
+    expect(result).toBe("Daily Logs/ATS import notes.md");
+  });
+
+  it("places standup at vault root ignoring project", () => {
+    const result = resolveFilePath(MAPPING, "Standup", "Ethos MD", "standup", "");
+    expect(result).toBe("Standups/Standup.md");
+  });
+
+  it("places reference doc in Resources/Components at vault root", () => {
+    const result = resolveFilePath(MAPPING, "Ethos Table", "Ethos MD", "reference", "");
+    expect(result).toBe("Resources/Components/Ethos Table.md");
+  });
+
+  it("places project overview at project root", () => {
+    const result = resolveFilePath(MAPPING, "Ethos MD Overview", "Ethos MD", "project_overview", "");
+    expect(result).toBe("Ethos MD/Ethos MD Overview.md");
   });
 });
 

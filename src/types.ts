@@ -49,6 +49,7 @@ export interface SNFrontmatter {
 export type CategoryMapping = string | {
   root: string;
   subfolders: string[];
+  topLevel?: boolean;
 };
 
 export interface CustomFolderMapping {

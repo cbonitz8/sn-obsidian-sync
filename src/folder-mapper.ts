@@ -17,20 +17,19 @@ export function resolveFilePath(
   }
 
   const parts: string[] = [];
+  const catMapping = category ? mapping.categories[category] : undefined;
+  const isTopLevel = catMapping && typeof catMapping !== "string" && catMapping.topLevel;
 
-  if (mapping.projects && project) {
+  if (mapping.projects && project && !isTopLevel) {
     parts.push(project);
   }
 
-  if (category) {
-    const catMapping = mapping.categories[category];
-    if (catMapping) {
-      if (typeof catMapping === "string") {
-        parts.push(catMapping);
-      } else {
-        parts.push(catMapping.root);
-        parts.push(catMapping.subfolders[0] ?? "");
-      }
+  if (catMapping) {
+    if (typeof catMapping === "string") {
+      parts.push(catMapping);
+    } else {
+      parts.push(catMapping.root);
+      parts.push(catMapping.subfolders[0] ?? "");
     }
   }
 
