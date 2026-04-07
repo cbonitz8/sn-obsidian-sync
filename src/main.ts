@@ -81,31 +81,31 @@ export default class SNSyncPlugin extends Plugin {
     this.updateStatusBar("idle");
 
     this.statusBarEl.addEventListener("click", () => {
-      this.syncEngine.sync();
+      void this.syncEngine.sync();
     });
 
     this.addCommand({
       id: "sync-now",
       name: "Sync now",
-      callback: () => this.syncEngine.sync(),
+      callback: () => void this.syncEngine.sync(),
     });
 
     this.addCommand({
       id: "initial-pull",
       name: "Initial pull (download all documents)",
-      callback: () => this.syncEngine.initialPull(),
+      callback: () => void this.syncEngine.initialPull(),
     });
 
     this.addCommand({
       id: "bulk-push",
       name: "Bulk push (upload all unsynced documents to SN)",
-      callback: () => this.syncEngine.bulkPush(),
+      callback: () => void this.syncEngine.bulkPush(),
     });
 
     this.addCommand({
       id: "bulk-update",
       name: "Bulk update (re-push all synced documents to SN)",
-      callback: () => this.syncEngine.bulkUpdate(),
+      callback: () => void this.syncEngine.bulkUpdate(),
     });
 
     this.addCommand({
@@ -117,7 +117,7 @@ export default class SNSyncPlugin extends Plugin {
         const conflict = this.conflictResolver.getConflictForPath(file.path);
         if (!conflict) return false;
         if (checking) return true;
-        this.conflictResolver.resolveWithPull(conflict.sysId);
+        void this.conflictResolver.resolveWithPull(conflict.sysId);
         return true;
       },
     });
@@ -131,7 +131,7 @@ export default class SNSyncPlugin extends Plugin {
         const conflict = this.conflictResolver.getConflictForPath(file.path);
         if (!conflict) return false;
         if (checking) return true;
-        this.conflictResolver.resolveWithPush(conflict.sysId);
+        void this.conflictResolver.resolveWithPush(conflict.sysId);
         return true;
       },
     });
@@ -167,23 +167,23 @@ export default class SNSyncPlugin extends Plugin {
 
     this.addCommand({
       id: "open-sn-browser",
-      name: "Open Snobby browser",
+      name: "Open browser",
       callback: () => {
         const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SN_BROWSER);
         if (existing.length > 0) {
           this.app.workspace.revealLeaf(existing[0]!);
         } else {
           const leaf = this.app.workspace.getLeaf("tab");
-          leaf.setViewState({ type: VIEW_TYPE_SN_BROWSER, active: true });
+          void leaf.setViewState({ type: VIEW_TYPE_SN_BROWSER, active: true });
         }
       },
     });
 
     this.fileWatcher.start();
     this.syncEngine.start();
-    this.conflictResolver.migrateMarkerFiles();
+    void this.conflictResolver.migrateMarkerFiles();
 
-    this.conflictResolver.clearStaleConflicts().then((cleared) => {
+    void this.conflictResolver.clearStaleConflicts().then((cleared) => {
       if (cleared > 0) {
         new Notice(`Snobby: cleared ${cleared} stale conflict${cleared > 1 ? "s" : ""}`);
       }
@@ -197,7 +197,7 @@ export default class SNSyncPlugin extends Plugin {
     );
   }
 
-  async onunload() {
+  onunload() {
     this.syncEngine.stop();
   }
 
@@ -306,7 +306,7 @@ export default class SNSyncPlugin extends Plugin {
 
     const frag = document.createDocumentFragment();
     const container = frag.createEl("div", { cls: "sn-conflict-notice" });
-    container.createEl("div", { text: "Sync Conflict", cls: "sn-conflict-notice-title" });
+    container.createEl("div", { text: "Sync conflict", cls: "sn-conflict-notice-title" });
     container.createEl("div", {
       text: `"${file.basename}" has conflicting remote changes. Use the command palette to resolve: pull remote or push local.`,
       cls: "sn-conflict-notice-body",

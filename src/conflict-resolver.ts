@@ -1,4 +1,4 @@
-import { Notice, type TFile } from "obsidian";
+import { Notice, TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { ConflictEntry } from "./types";
 
@@ -60,17 +60,16 @@ export class ConflictResolver {
     if (!conflict) return;
 
     const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
-    if (!file) {
+    if (!(file instanceof TFile)) {
       delete this.plugin.syncState.conflicts[sysId];
       await this.plugin.saveSettings();
       return;
     }
 
-    const tFile = file as TFile;
-    const fm = await this.plugin.frontmatterManager.read(tFile);
+    const fm = await this.plugin.frontmatterManager.read(file);
     this.plugin.fileWatcher.addSyncWritePath(conflict.path);
-    await this.plugin.app.vault.modify(tFile, conflict.remoteContent);
-    await this.plugin.frontmatterManager.write(tFile, {
+    await this.plugin.app.vault.modify(file, conflict.remoteContent);
+    await this.plugin.frontmatterManager.write(file, {
       sys_id: fm.sys_id ?? sysId,
       category: fm.category,
       project: fm.project,
@@ -110,8 +109,8 @@ export class ConflictResolver {
     }
 
     const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
-    if (file) {
-      await this.plugin.frontmatterManager.markDirty(file as TFile);
+    if (file instanceof TFile) {
+      await this.plugin.frontmatterManager.markDirty(file);
     }
 
     delete this.plugin.syncState.conflicts[sysId];
@@ -137,19 +136,19 @@ export class ConflictResolver {
 
     for (const [sysId, conflict] of Object.entries(this.plugin.syncState.conflicts)) {
       const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
-      if (!file) {
+      if (!(file instanceof TFile)) {
         delete this.plugin.syncState.conflicts[sysId];
         cleared++;
         continue;
       }
 
-      const raw = await this.plugin.app.vault.read(file as TFile);
+      const raw = await this.plugin.app.vault.read(file);
       const localBody = this.stripFrontmatter(raw);
       const remoteBody = this.stripFrontmatter(conflict.remoteContent);
       if (localBody === remoteBody) {
         delete this.plugin.syncState.conflicts[sysId];
         this.plugin.fileWatcher.addSyncWritePath(conflict.path);
-        await this.plugin.frontmatterManager.markSynced(file as TFile);
+        await this.plugin.frontmatterManager.markSynced(file);
         this.plugin.fileWatcher.removeSyncWritePath(conflict.path);
         cleared++;
       }

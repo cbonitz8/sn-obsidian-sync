@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, Menu, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Menu, TFile, Modal, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata } from "./types";
 
@@ -28,7 +28,7 @@ export class SNBrowserView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Snobby Browser";
+    return "Snobby browser";
   }
 
   getIcon(): string {
@@ -52,7 +52,7 @@ export class SNBrowserView extends ItemView {
       cls: `sn-browser-tab ${this.activeTab === "browse" ? "is-active" : ""}`,
     });
     const conflictCount = Object.keys(this.plugin.syncState.conflicts).length;
-    const settingsLabel = conflictCount > 0 ? `Sync Settings (${conflictCount})` : "Sync Settings";
+    const settingsLabel = conflictCount > 0 ? `Sync settings (${conflictCount})` : "Sync settings";
     const settingsTab = tabBar.createEl("button", {
       text: settingsLabel,
       cls: `sn-browser-tab ${this.activeTab === "settings" ? "is-active" : ""}`,
@@ -60,11 +60,11 @@ export class SNBrowserView extends ItemView {
 
     browseTab.addEventListener("click", () => {
       this.activeTab = "browse";
-      this.render();
+      void this.render();
     });
     settingsTab.addEventListener("click", () => {
       this.activeTab = "settings";
-      this.render();
+      void this.render();
     });
 
     const content = container.createDiv({ cls: "sn-browser-content" });
@@ -220,7 +220,7 @@ export class SNBrowserView extends ItemView {
     }
     projectSelect.addEventListener("change", () => {
       this.selectedProject = projectSelect.value;
-      this.render();
+      void this.render();
     });
 
     const categorySelect = filterBar.createEl("select", { cls: "sn-filter-select" });
@@ -233,7 +233,7 @@ export class SNBrowserView extends ItemView {
     }
     categorySelect.addEventListener("change", () => {
       this.selectedCategory = categorySelect.value;
-      this.render();
+      void this.render();
     });
 
     const statusSelect = filterBar.createEl("select", { cls: "sn-filter-select" });
@@ -243,7 +243,7 @@ export class SNBrowserView extends ItemView {
     statusSelect.value = this.selectedStatus;
     statusSelect.addEventListener("change", () => {
       this.selectedStatus = statusSelect.value;
-      this.render();
+      void this.render();
     });
 
     const searchInput = filterBar.createEl("input", {
@@ -254,14 +254,14 @@ export class SNBrowserView extends ItemView {
     });
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value;
-      this.render();
+      void this.render();
     });
 
     const refreshBtn = filterBar.createEl("button", { text: "↻", cls: "sn-filter-refresh" });
     refreshBtn.addEventListener("click", () => {
       this.serverDocs = [];
       this.metadata = null;
-      this.render();
+      void this.render();
     });
 
     const panes = container.createDiv({ cls: "sn-browser-panes" });
@@ -277,7 +277,7 @@ export class SNBrowserView extends ItemView {
 
     const conflicts = this.plugin.conflictResolver.getAllConflicts();
 
-    stats.createEl("h3", { text: "Sync Overview" });
+    stats.createEl("h3", { text: "Sync overview" });
     const statGrid = stats.createDiv({ cls: "sn-stat-grid" });
     this.createStatCard(statGrid, String(totalServer), "On server");
     this.createStatCard(statGrid, String(totalLocal), "Downloaded");
@@ -285,32 +285,34 @@ export class SNBrowserView extends ItemView {
     this.createStatCard(statGrid, String(conflicts.length), "Conflicts", conflicts.length > 0);
 
     const dangerSection = container.createDiv({ cls: "sn-exclude-section" });
-    dangerSection.createEl("h3", { text: "Reset & Re-pull" });
+    dangerSection.createEl("h3", { text: "Reset & re-pull" });
     dangerSection.createEl("p", {
       text: "Delete all synced files and re-download from ServiceNow. Use after changing folder mapping or to fix misplaced files.",
       cls: "sn-exclude-desc",
     });
     const repullBtn = dangerSection.createEl("button", {
-      text: "Delete All & Re-pull",
+      text: "Delete all & re-pull",
       cls: "sn-action-btn sn-action-btn-danger",
     });
-    repullBtn.addEventListener("click", async () => {
+    repullBtn.addEventListener("click", () => {
       const count = Object.keys(this.plugin.syncState.docMap).length;
       if (count === 0) {
         new Notice("No synced files to delete.");
         return;
       }
-      const confirmed = confirm(
-        `This will delete ${count} local synced file${count > 1 ? "s" : ""} and re-download them from ServiceNow using the current folder mapping.\n\nLocal-only files (not yet pushed) will NOT be affected.\n\nContinue?`
+      const modal = new ConfirmModal(
+        this.plugin.app,
+        `This will delete ${count} local synced file${count > 1 ? "s" : ""} and re-download them from ServiceNow using the current folder mapping.\n\nLocal-only files (not yet pushed) will NOT be affected.`,
+        async () => {
+          repullBtn.setText("Deleting & re-pulling...");
+          repullBtn.setAttr("disabled", "true");
+          await this.plugin.syncEngine.deleteAllAndRepull();
+          this.serverDocs = [];
+          this.metadata = null;
+          await this.render();
+        }
       );
-      if (!confirmed) return;
-
-      repullBtn.setText("Deleting & re-pulling...");
-      repullBtn.setAttr("disabled", "true");
-      await this.plugin.syncEngine.deleteAllAndRepull();
-      this.serverDocs = [];
-      this.metadata = null;
-      this.render();
+      modal.open();
     });
 
     const conflictSection = container.createDiv({ cls: "sn-conflict-section" });
@@ -320,19 +322,19 @@ export class SNBrowserView extends ItemView {
       conflictSection.createEl("p", { text: "No conflicts.", cls: "sn-conflict-empty" });
     } else {
       const conflictActions = conflictSection.createDiv({ cls: "sn-conflict-actions" });
-      const clearStaleBtn = conflictActions.createEl("button", { text: "Clear Stale Conflicts", cls: "sn-action-btn" });
+      const clearStaleBtn = conflictActions.createEl("button", { text: "Clear stale conflicts", cls: "sn-action-btn" });
       clearStaleBtn.addEventListener("click", async () => {
         const cleared = await this.plugin.conflictResolver.clearStaleConflicts();
         new Notice(cleared > 0
           ? `Cleared ${cleared} stale conflict${cleared > 1 ? "s" : ""}`
           : "No stale conflicts found");
-        this.render();
+        await this.render();
       });
-      const dismissAllBtn = conflictActions.createEl("button", { text: "Dismiss All", cls: "sn-action-btn sn-action-btn-danger" });
+      const dismissAllBtn = conflictActions.createEl("button", { text: "Dismiss all", cls: "sn-action-btn sn-action-btn-danger" });
       dismissAllBtn.addEventListener("click", async () => {
         await this.plugin.conflictResolver.clearAllConflicts();
         new Notice("All conflicts dismissed");
-        this.render();
+        await this.render();
       });
 
       const conflictList = conflictSection.createDiv({ cls: "sn-conflict-list" });
@@ -354,25 +356,25 @@ export class SNBrowserView extends ItemView {
         const openBtn = actions.createEl("button", { text: "Open", cls: "sn-action-btn" });
         openBtn.addEventListener("click", () => {
           const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
-          if (file) {
-            this.plugin.app.workspace.getLeaf(false).openFile(file as TFile);
+          if (file instanceof TFile) {
+            void this.plugin.app.workspace.getLeaf(false).openFile(file);
           }
         });
-        const pullBtn = actions.createEl("button", { text: "Pull Remote", cls: "sn-action-btn mod-cta" });
+        const pullBtn = actions.createEl("button", { text: "Pull remote", cls: "sn-action-btn mod-cta" });
         pullBtn.addEventListener("click", async () => {
           await this.plugin.conflictResolver.resolveWithPull(conflict.sysId);
-          this.render();
+          await this.render();
         });
-        const pushBtn = actions.createEl("button", { text: "Push Local", cls: "sn-action-btn" });
+        const pushBtn = actions.createEl("button", { text: "Push local", cls: "sn-action-btn" });
         pushBtn.addEventListener("click", async () => {
           await this.plugin.conflictResolver.resolveWithPush(conflict.sysId);
-          this.render();
+          await this.render();
         });
       }
     }
 
     const excludeSection = container.createDiv({ cls: "sn-exclude-section" });
-    excludeSection.createEl("h3", { text: "Excluded from Sync" });
+    excludeSection.createEl("h3", { text: "Excluded from sync" });
     excludeSection.createEl("p", {
       text: "Files and folders matching these patterns will not be synced to ServiceNow.",
       cls: "sn-exclude-desc",
@@ -393,7 +395,7 @@ export class SNBrowserView extends ItemView {
         await this.plugin.saveSettings();
       }
       addInput.value = "";
-      this.render();
+      await this.render();
     });
 
     const list = excludeSection.createDiv({ cls: "sn-exclude-list" });
@@ -407,7 +409,7 @@ export class SNBrowserView extends ItemView {
         removeBtn.addEventListener("click", async () => {
           this.plugin.settings.excludePaths = this.plugin.settings.excludePaths.filter((p) => p !== path);
           await this.plugin.saveSettings();
-          this.render();
+          await this.render();
         });
       }
     }
@@ -431,7 +433,7 @@ export class SNBrowserView extends ItemView {
     allNode.createEl("span", { text: `All (${docs.length})` });
     allNode.addEventListener("click", () => {
       this.selectedTreeNode = "";
-      this.render();
+      void this.render();
     });
 
     for (const [project, categories] of tree) {
@@ -457,7 +459,7 @@ export class SNBrowserView extends ItemView {
           this.expandedNodes.add(projKey);
         }
         this.selectedTreeNode = projKey;
-        this.render();
+        void this.render();
       });
 
       projHeader.addEventListener("contextmenu", (e) => {
@@ -488,7 +490,7 @@ export class SNBrowserView extends ItemView {
           catNode.addEventListener("click", (e) => {
             e.stopPropagation();
             this.selectedTreeNode = catKey;
-            this.render();
+            void this.render();
           });
         }
       }
@@ -527,17 +529,17 @@ export class SNBrowserView extends ItemView {
 
     if (selectedCount > 0) {
       const downloadBtn = actionBar.createEl("button", {
-        text: `Download Selected (${selectedCount})`,
+        text: `Download selected (${selectedCount})`,
         cls: "sn-action-btn mod-cta",
       });
-      downloadBtn.addEventListener("click", () => this.downloadSelected());
+      downloadBtn.addEventListener("click", () => void this.downloadSelected());
     }
 
     const downloadAllBtn = actionBar.createEl("button", {
-      text: "Download All Not Synced",
+      text: "Download all not synced",
       cls: "sn-action-btn",
     });
-    downloadAllBtn.addEventListener("click", () => this.downloadAllUnsynced(docs));
+    downloadAllBtn.addEventListener("click", () => void this.downloadAllUnsynced(docs));
 
     const list = listPane.createDiv({ cls: "sn-doc-list" });
     for (const doc of docs) {
@@ -554,7 +556,7 @@ export class SNBrowserView extends ItemView {
         } else {
           this.selectedDocIds.delete(doc.sys_id);
         }
-        this.render();
+        void this.render();
       });
 
       const statusIcon = status === "synced" ? "●" : "○";
@@ -581,8 +583,8 @@ export class SNBrowserView extends ItemView {
         const entry = this.plugin.syncState.docMap[doc.sys_id];
         if (entry) {
           const file = this.plugin.app.vault.getAbstractFileByPath(entry.path);
-          if (file) {
-            this.plugin.app.workspace.getLeaf(false).openFile(file as TFile);
+          if (file instanceof TFile) {
+            void this.plugin.app.workspace.getLeaf(false).openFile(file);
           }
         }
       });
@@ -593,13 +595,13 @@ export class SNBrowserView extends ItemView {
     const docs = this.serverDocs.filter((d) => this.selectedDocIds.has(d.sys_id));
     await this.downloadDocs(docs);
     this.selectedDocIds.clear();
-    this.render();
+    await this.render();
   }
 
   private async downloadAllUnsynced(docs: SNDocument[]) {
     const unsynced = docs.filter((d) => this.getDocStatus(d) === "not-downloaded");
     await this.downloadDocs(unsynced);
-    this.render();
+    await this.render();
   }
 
   private async downloadDocs(docs: SNDocument[]) {
@@ -625,5 +627,38 @@ export class SNBrowserView extends ItemView {
 
     await this.plugin.saveSettings();
     new Notice(`Downloaded ${count} documents.`);
+  }
+}
+
+class ConfirmModal extends Modal {
+  private message: string;
+  private onConfirm: () => void;
+
+  constructor(app: import("obsidian").App, message: string, onConfirm: () => void) {
+    super(app);
+    this.message = message;
+    this.onConfirm = onConfirm;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("p", { text: this.message });
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn.setButtonText("Cancel").onClick(() => this.close())
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Continue")
+          .setCta()
+          .onClick(() => {
+            this.close();
+            this.onConfirm();
+          })
+      );
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }

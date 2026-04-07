@@ -34,7 +34,7 @@ export class NewDocModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h2", { text: "New ServiceNow Document" });
+    contentEl.createEl("h2", { text: "New ServiceNow document" });
 
     new Setting(contentEl)
       .setName("Category")

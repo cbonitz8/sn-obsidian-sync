@@ -50,7 +50,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
 
     const details = containerEl.createEl("details", { cls: "sn-setup-info" });
     const summary = details.createEl("summary");
-    summary.createEl("span", { text: "Setup Information" });
+    summary.createEl("span", { text: "Setup information" });
 
     new Setting(details)
       .setName("Documentation")
@@ -62,7 +62,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
       );
 
     const routesEl = details.createDiv({ cls: "sn-routes-reference" });
-    routesEl.createEl("h4", { text: "Expected API Routes" });
+    new Setting(routesEl).setName("Expected API routes").setHeading();
     routesEl.createEl("p", {
       text: "Your Scripted REST API must implement these endpoints relative to the API path configured below:",
       cls: "setting-item-description",
@@ -135,8 +135,8 @@ export class SNSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("OAuth Redirect URI")
-      .setDesc("Must match the redirect URL in your SN OAuth Application")
+      .setName("OAuth redirect URI")
+      .setDesc("Must match the redirect URL in your SN OAuth application")
       .addText((text) =>
         text
           .setPlaceholder("obsidian://sn-obsidian-sync/callback")
@@ -148,10 +148,10 @@ export class SNSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("OAuth Client ID")
+      .setName("OAuth client ID")
       .addText((text) =>
         text
-          .setPlaceholder("Client ID")
+          .setPlaceholder("Client id")
           .setValue(this.plugin.settings.oauthClientId)
           .onChange(async (value) => {
             this.plugin.settings.oauthClientId = value;
@@ -160,10 +160,10 @@ export class SNSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("OAuth Client Secret")
+      .setName("OAuth client secret")
       .addText((text) =>
         text
-          .setPlaceholder("Client Secret")
+          .setPlaceholder("Client secret")
           .setValue(this.plugin.settings.oauthClientSecret)
           .onChange(async (value) => {
             this.plugin.settings.oauthClientSecret = value;
@@ -179,7 +179,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
       .setName("Authentication")
       .setDesc(authStatus)
       .addButton((button) =>
-        button.setButtonText("Authenticate").onClick(async () => {
+        button.setButtonText("Authenticate").onClick(() => {
           this.plugin.authManager?.startOAuthFlow();
         })
       );
@@ -229,7 +229,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
 
 
             const catSection = metadataContainer.createDiv({ cls: "sn-metadata-section" });
-            catSection.createEl("h4", { text: "Categories" });
+            new Setting(catSection).setName("Categories").setHeading();
             if (meta.categories && meta.categories.length > 0) {
               const catList = catSection.createEl("ul");
               for (const cat of meta.categories) {
@@ -240,7 +240,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
             }
 
             const projSection = metadataContainer.createDiv({ cls: "sn-metadata-section" });
-            projSection.createEl("h4", { text: "Projects" });
+            new Setting(projSection).setName("Projects").setHeading();
             if (meta.projects && meta.projects.length > 0) {
               const projList = projSection.createEl("ul");
               for (const proj of meta.projects) {
@@ -251,7 +251,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
             }
 
             const tagSection = metadataContainer.createDiv({ cls: "sn-metadata-section" });
-            tagSection.createEl("h4", { text: "Tags" });
+            new Setting(tagSection).setName("Tags").setHeading();
             if (meta.tags && meta.tags.length > 0) {
               tagSection.createEl("p", { text: meta.tags.join(", ") });
             } else {
@@ -322,7 +322,7 @@ export class SNSyncSettingTab extends PluginSettingTab {
         dropdown
           .addOption("ignore", "Ignore (don't re-pull)")
           .addOption("re-pull", "Re-pull from ServiceNow")
-          .addOption("archive", "Move to Archive folder")
+          .addOption("archive", "Move to archive folder")
           .setValue(this.plugin.settings.localDeleteBehavior)
           .onChange(async (value) => {
             this.plugin.settings.localDeleteBehavior = value as "ignore" | "re-pull" | "archive";

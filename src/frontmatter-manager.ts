@@ -14,7 +14,7 @@ export class FrontmatterManager {
     this.prefix = prefix;
   }
 
-  async read(file: TFile): Promise<SNFrontmatter> {
+  read(file: TFile): SNFrontmatter {
     const result: SNFrontmatter = {};
     const cache = this.app.metadataCache.getFileCache(file);
     const fm = cache?.frontmatter;

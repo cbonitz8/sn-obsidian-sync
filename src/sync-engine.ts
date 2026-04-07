@@ -51,7 +51,7 @@ export class SyncEngine {
   private startInterval() {
     this.stopInterval();
     const ms = this.plugin.settings.syncIntervalSeconds * 1000;
-    this.intervalId = window.setInterval(() => this.sync(), ms);
+    this.intervalId = window.setInterval(() => void this.sync(), ms);
     this.plugin.registerInterval(this.intervalId);
   }
 
@@ -154,7 +154,7 @@ export class SyncEngine {
         const file = this.plugin.app.vault.getAbstractFileByPath(entry.path);
         if (file instanceof TFile) {
           this.fileWatcher.addSyncWritePath(entry.path);
-          await this.plugin.app.vault.delete(file);
+          await this.plugin.app.fileManager.trashFile(file);
           this.fileWatcher.removeSyncWritePath(entry.path);
           deleted++;
         }
@@ -474,7 +474,7 @@ export class SyncEngine {
       const checkoutResult = await this.apiClient.checkout(fm.sys_id);
       if (!checkoutResult.ok) {
         if (checkoutResult.status === 423) {
-          const lockedBy = (checkoutResult.data as SNDocument | null)?.checked_out_by ?? "another user";
+          const lockedBy = checkoutResult.data?.checked_out_by ?? "another user";
           new Notice(`Cannot push "${file.basename}": checked out by ${lockedBy}`);
         } else {
           result.errors.push(`Checkout failed for ${file.basename}: HTTP ${checkoutResult.status}`);
@@ -665,7 +665,7 @@ export class SyncEngine {
     }
   }
 
-  async resolveCollision(path: string, sysId: string): Promise<string> {
+  resolveCollision(path: string, sysId: string): string {
     if (!this.plugin.app.vault.getAbstractFileByPath(path)) return path;
 
     const ext = ".md";

@@ -23,7 +23,7 @@ export class AuthManager {
     const { instanceUrl, oauthClientId, oauthRedirectUri } = this.plugin.settings;
 
     if (!instanceUrl || !oauthClientId) {
-      new Notice("Configure Instance URL and OAuth Client ID first.");
+      new Notice("Configure instance URL and OAuth client ID first.");
       return;
     }
 

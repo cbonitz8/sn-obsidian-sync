@@ -27,13 +27,13 @@ export class FileWatcher {
 
     this.plugin.registerEvent(
       this.plugin.app.vault.on("delete", (file) => {
-        if (file instanceof TFile) this.onDelete(file);
+        if (file instanceof TFile) void this.onDelete(file);
       })
     );
 
     this.plugin.registerEvent(
       this.plugin.app.vault.on("rename", (file, oldPath) => {
-        if (file instanceof TFile) this.onRename(file, oldPath);
+        if (file instanceof TFile) void this.onRename(file, oldPath);
       })
     );
   }
@@ -68,9 +68,9 @@ export class FileWatcher {
 
     this.debounceTimers.set(
       file.path,
-      setTimeout(async () => {
+      setTimeout(() => {
         this.debounceTimers.delete(file.path);
-        await this.handleFileModified(file);
+        void this.handleFileModified(file);
       }, DEBOUNCE_MS)
     );
   }
