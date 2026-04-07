@@ -40,15 +40,8 @@ export class ConflictResolver {
   }
 
   applyConflict(sysId: string, path: string, remoteContent: string, remoteTimestamp: string, lockedBy: string) {
-    this.plugin.syncState.conflicts[sysId] = {
-      sysId,
-      path,
-      remoteContent,
-      remoteTimestamp,
-      lockedBy,
-    };
-
-    const conflict = this.plugin.syncState.conflicts[sysId]!;
+    const conflict: ConflictEntry = { sysId, path, remoteContent, remoteTimestamp, lockedBy };
+    this.plugin.syncState.conflicts[sysId] = conflict;
     new ConflictModal(this.plugin, conflict).open();
   }
 
