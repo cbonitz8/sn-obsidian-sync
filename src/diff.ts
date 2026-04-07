@@ -82,3 +82,51 @@ export function computeDiff(local: string, remote: string): DiffLine[] {
 
   return full;
 }
+
+export interface Hunk {
+  lines: DiffLine[];
+}
+
+const CONTEXT_LINES = 3;
+
+/**
+ * Group diff lines into hunks showing only changed regions with surrounding context.
+ * Adjacent hunks whose context would overlap are merged.
+ */
+export function extractHunks(diffLines: DiffLine[]): Hunk[] {
+  if (diffLines.length === 0) return [];
+
+  // Find indices of all changed lines
+  const changeIndices: number[] = [];
+  for (let i = 0; i < diffLines.length; i++) {
+    if (diffLines[i]!.type !== "context") {
+      changeIndices.push(i);
+    }
+  }
+
+  if (changeIndices.length === 0) return [];
+
+  // Build raw hunks: each change gets a range with context
+  const ranges: [number, number][] = [];
+  let rangeStart = Math.max(0, changeIndices[0]! - CONTEXT_LINES);
+  let rangeEnd = Math.min(diffLines.length - 1, changeIndices[0]! + CONTEXT_LINES);
+
+  for (let i = 1; i < changeIndices.length; i++) {
+    const newStart = Math.max(0, changeIndices[i]! - CONTEXT_LINES);
+    const newEnd = Math.min(diffLines.length - 1, changeIndices[i]! + CONTEXT_LINES);
+
+    if (newStart <= rangeEnd + 1) {
+      // Overlapping or adjacent — extend current range
+      rangeEnd = newEnd;
+    } else {
+      ranges.push([rangeStart, rangeEnd]);
+      rangeStart = newStart;
+      rangeEnd = newEnd;
+    }
+  }
+  ranges.push([rangeStart, rangeEnd]);
+
+  return ranges.map(([start, end]) => ({
+    lines: diffLines.slice(start, end + 1),
+  }));
+}
