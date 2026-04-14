@@ -594,6 +594,27 @@
   color: var(--text-muted);
 }
 
+/* Diff legend */
+.sn-diff-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 6px;
+  font-size: 0.8em;
+}
+
+.sn-diff-legend-item {
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.sn-diff-legend-local {
+  background: rgba(255, 100, 100, 0.15);
+}
+
+.sn-diff-legend-remote {
+  background: rgba(100, 255, 100, 0.15);
+}
+
 /* Diff rendering */
 .sn-conflict-modal-diff {
   max-height: 400px;

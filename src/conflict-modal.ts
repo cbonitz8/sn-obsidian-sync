@@ -44,7 +44,11 @@ export class ConflictModal extends Modal {
       text: `Local \u2014 modified ${localTimeStr}`,
     });
 
-    let remoteText = `Remote \u2014 modified ${this.conflict.remoteTimestamp}`;
+    const remoteMtime = new Date(this.conflict.remoteTimestamp.replace(" ", "T"));
+    const remoteTimeStr = isNaN(remoteMtime.getTime())
+      ? this.conflict.remoteTimestamp
+      : remoteMtime.toLocaleString();
+    let remoteText = `Remote \u2014 modified ${remoteTimeStr}`;
     if (this.conflict.lockedBy) {
       remoteText += ` by ${this.conflict.lockedBy}`;
     }
@@ -95,6 +99,11 @@ export class ConflictModal extends Modal {
       });
       return;
     }
+
+    // Diff legend
+    const legend = contentEl.createDiv({ cls: "sn-diff-legend" });
+    legend.createSpan({ cls: "sn-diff-legend-item sn-diff-legend-local", text: "\u2212 Local" });
+    legend.createSpan({ cls: "sn-diff-legend-item sn-diff-legend-remote", text: "+ Remote" });
 
     // Render hunks
     const hunks = extractHunks(diffLines);
