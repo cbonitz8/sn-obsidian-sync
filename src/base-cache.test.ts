@@ -2,11 +2,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { BaseCache } from "./base-cache";
 
+const PLUGIN_DIR = ".obsidian/plugins/sn-obsidian-sync";
+
 function makeApp() {
   const store: Record<string, string> = {};
+  const dirs = new Set<string>();
   return {
     vault: {
-      configDir: ".obsidian",
       adapter: {
         read: async (path: string) => {
           if (path in store) return store[path]!;
@@ -15,6 +17,8 @@ function makeApp() {
         write: async (path: string, data: string) => {
           store[path] = data;
         },
+        exists: async (path: string) => path in store || dirs.has(path),
+        mkdir: async (path: string) => { dirs.add(path); },
       },
     },
     _store: store,
@@ -27,7 +31,7 @@ describe("BaseCache", () => {
 
   beforeEach(() => {
     app = makeApp();
-    cache = new BaseCache(app as never, "sn-obsidian-sync");
+    cache = new BaseCache(app as never, PLUGIN_DIR);
   });
 
   it("returns null for missing sysId", async () => {
@@ -47,18 +51,17 @@ describe("BaseCache", () => {
 
   it("persists across instances", async () => {
     await cache.saveBase("abc123", "persisted");
-    const cache2 = new BaseCache(app as never, "sn-obsidian-sync");
+    const cache2 = new BaseCache(app as never, PLUGIN_DIR);
     expect(await cache2.loadBase("abc123")).toBe("persisted");
   });
 
   it("handles corrupt cache file gracefully", async () => {
-    app._store[".obsidian/plugins/sn-obsidian-sync/sync-base-cache.json"] = "not json{{{";
-    const cache2 = new BaseCache(app as never, "sn-obsidian-sync");
+    app._store[`${PLUGIN_DIR}/sync-base-cache.json`] = "not json{{{";
+    const cache2 = new BaseCache(app as never, PLUGIN_DIR);
     expect(await cache2.loadBase("anything")).toBeNull();
   });
 
   it("handles missing cache file gracefully", async () => {
-    // No file in store — read will throw
     expect(await cache.loadBase("anything")).toBeNull();
   });
 
@@ -74,7 +77,7 @@ describe("BaseCache", () => {
 
   it("uses correct cache path", async () => {
     await cache.saveBase("x", "y");
-    const expectedPath = ".obsidian/plugins/sn-obsidian-sync/sync-base-cache.json";
+    const expectedPath = `${PLUGIN_DIR}/sync-base-cache.json`;
     expect(expectedPath in app._store).toBe(true);
   });
 });

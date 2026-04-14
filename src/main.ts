@@ -60,7 +60,7 @@ export default class SNSyncPlugin extends Plugin {
       this.settings.frontmatterPrefix
     );
     this.fileWatcher = new FileWatcher(this, this.frontmatterManager, this.apiClient);
-    const baseCache = new BaseCache(this.app, this.manifest.id);
+    const baseCache = new BaseCache(this.app, this.manifest.dir!);
     this.conflictResolver = new ConflictResolver(this, baseCache);
     this.syncEngine = new SyncEngine(
       this,

@@ -5,9 +5,9 @@ export class BaseCache {
   private cachePath: string;
   private cache: Record<string, string> | null = null;
 
-  constructor(app: App, pluginId: string) {
+  constructor(app: App, pluginDir: string) {
     this.app = app;
-    this.cachePath = `${app.vault.configDir}/plugins/${pluginId}/sync-base-cache.json`;
+    this.cachePath = `${pluginDir}/sync-base-cache.json`;
   }
 
   private async ensureLoaded(): Promise<Record<string, string>> {
@@ -23,6 +23,10 @@ export class BaseCache {
 
   private async persist(): Promise<void> {
     if (!this.cache) return;
+    const dir = this.cachePath.substring(0, this.cachePath.lastIndexOf("/"));
+    if (!(await this.app.vault.adapter.exists(dir))) {
+      await this.app.vault.adapter.mkdir(dir);
+    }
     await this.app.vault.adapter.write(this.cachePath, JSON.stringify(this.cache));
   }
 
