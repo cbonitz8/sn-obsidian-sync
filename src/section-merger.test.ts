@@ -49,6 +49,7 @@ describe("mergeSections — three-way", () => {
     expect(result.conflicts[0]!.localBody).toContain("Local version");
     expect(result.conflicts[0]!.remoteBody).toContain("Remote version");
     expect(result.conflicts[0]!.baseBody).toContain("Original");
+    expect(result.mergedBody).toContain("Local version");
   });
 
   it("treats convergent edits as unchanged", () => {
@@ -115,6 +116,7 @@ describe("mergeSections — three-way", () => {
     const remote = p("### A\nOriginal\n\n### B\nSame");
     const result = mergeSections(base, local, remote);
     expect(result.hasConflicts).toBe(false);
+    expect(result.outcomes.get("b")!.status).toBe("added");
   });
 
   it("conflicts when both add same key with different content", () => {
