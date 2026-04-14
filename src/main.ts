@@ -76,7 +76,7 @@ export default class SNSyncPlugin extends Plugin {
     if (handlerMatch) {
       this.registerObsidianProtocolHandler(handlerMatch[1]!, async (params) => {
         if (params.code) {
-          await this.authManager.handleCallback(params.code);
+          await this.authManager.handleCallback(params.code, params.state);
         }
       });
     }

@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNSyncSettings, FolderMapping } from "./types";
 
@@ -99,12 +99,15 @@ export class SNSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Instance URL")
-      .setDesc("ServiceNow instance URL")
+      .setDesc("ServiceNow instance URL (must use HTTPS)")
       .addText((text) =>
         text
           .setPlaceholder("https://instance.service-now.com")
           .setValue(this.plugin.settings.instanceUrl)
           .onChange(async (value) => {
+            if (value && !value.startsWith("https://")) {
+              new Notice("Warning: Instance URL should use HTTPS to protect credentials.");
+            }
             this.plugin.settings.instanceUrl = value;
             await this.plugin.saveSettings();
           })
@@ -163,15 +166,16 @@ export class SNSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("OAuth client secret")
-      .addText((text) =>
+      .addText((text) => {
         text
           .setPlaceholder("Client secret")
           .setValue(this.plugin.settings.oauthClientSecret)
           .onChange(async (value) => {
             this.plugin.settings.oauthClientSecret = value;
             await this.plugin.saveSettings();
-          })
-      );
+          });
+        text.inputEl.type = "password";
+      });
 
     const authStatus = this.plugin.authManager?.isAuthenticated()
       ? "Authenticated"

@@ -6,7 +6,7 @@ import type { FileWatcher } from "./file-watcher";
 import type { ConflictResolver } from "./conflict-resolver";
 import type { SNDocument, SNMetadata, SyncResult } from "./types";
 import type { BaseCache } from "./base-cache";
-import { resolveFilePath } from "./folder-mapper";
+import { resolveFilePath, sanitizePathSegment } from "./folder-mapper";
 import { promptNewDocMetadata } from "./new-doc-modal";
 import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections } from "./section-parser";
@@ -673,7 +673,7 @@ export class SyncEngine {
     const { folderMapping } = this.plugin.settings;
 
     await this.ensureMetadata();
-    const projectLabel = this.resolveLabel("projects", doc.project);
+    const projectLabel = sanitizePathSegment(this.resolveLabel("projects", doc.project));
     const categoryLabel = this.resolveLabel("categories", doc.category);
 
     const filePath = normalizePath(

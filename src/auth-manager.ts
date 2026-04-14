@@ -6,6 +6,8 @@ const TOKEN_EXPIRY_BUFFER_MS = 60_000; // Refresh 1 minute before expiry
 
 export class AuthManager {
   private plugin: SNSyncPlugin;
+  private pendingOAuthState: string | null = null;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(plugin: SNSyncPlugin) {
     this.plugin = plugin;
@@ -28,17 +30,28 @@ export class AuthManager {
     }
 
     const redirectUri = oauthRedirectUri;
+    const state = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    this.pendingOAuthState = state;
+
     const authUrl =
       `${instanceUrl}/oauth_auth.do` +
       `?response_type=code` +
       `&client_id=${encodeURIComponent(oauthClientId)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=sn-obsidian-sync`;
+      `&state=${encodeURIComponent(state)}`;
 
     window.open(authUrl);
   }
 
-  async handleCallback(code: string) {
+  async handleCallback(code: string, state?: string) {
+    if (!this.pendingOAuthState || state !== this.pendingOAuthState) {
+      new Notice("Authentication failed: invalid OAuth state. Try again.");
+      this.pendingOAuthState = null;
+      return;
+    }
+    this.pendingOAuthState = null;
     const { instanceUrl, oauthClientId, oauthClientSecret, oauthRedirectUri } = this.plugin.settings;
 
     try {
@@ -64,12 +77,22 @@ export class AuthManager {
       await this.plugin.saveSettings();
       new Notice("ServiceNow authentication successful!");
     } catch (e) {
-      console.error("Snobby: OAuth token exchange failed", e);
+      console.error("Snobby: OAuth token exchange failed", e instanceof Error ? e.message : "unknown error");
       new Notice("Authentication failed. Check your OAuth credentials.");
     }
   }
 
   private async refreshAccessToken(): Promise<boolean> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this.doRefresh();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefresh(): Promise<boolean> {
     const { instanceUrl, oauthClientId, oauthClientSecret } = this.plugin.settings;
 
     try {
@@ -94,7 +117,7 @@ export class AuthManager {
       await this.plugin.saveSettings();
       return true;
     } catch (e) {
-      console.error("Snobby: Token refresh failed", e);
+      console.error("Snobby: Token refresh failed", e instanceof Error ? e.message : "unknown error");
       new Notice("ServiceNow session expired. Please re-authenticate.");
       return false;
     }

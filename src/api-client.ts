@@ -64,7 +64,7 @@ export class ApiClient {
   }
 
   async getDocument(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("GET", `/documents/${id}`);
+    return this.request<SNDocument>("GET", `/documents/${encodeURIComponent(id)}`);
   }
 
   async getChanges(since: string): Promise<ApiResponse<SNDocument[]>> {
@@ -79,23 +79,23 @@ export class ApiClient {
     id: string,
     doc: UpdateDocumentPayload
   ): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("PUT", `/documents/${id}`, doc);
+    return this.request<SNDocument>("PUT", `/documents/${encodeURIComponent(id)}`, doc);
   }
 
   async deleteDocument(id: string): Promise<ApiResponse<void>> {
-    return this.request<void>("DELETE", `/documents/${id}`);
+    return this.request<void>("DELETE", `/documents/${encodeURIComponent(id)}`);
   }
 
   async checkout(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${id}/checkout`);
+    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/checkout`);
   }
 
   async checkin(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${id}/checkin`);
+    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/checkin`);
   }
 
   async forceCheckin(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${id}/force-checkin`);
+    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/force-checkin`);
   }
 
   async getMetadata(): Promise<ApiResponse<SNMetadata>> {

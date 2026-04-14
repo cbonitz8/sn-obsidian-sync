@@ -42,3 +42,11 @@ export function sanitizeTitle(title: string): string {
   if (trimmed.length === 0) return "Untitled";
   return trimmed.replace(/[\\/:*?"<>|]/g, "-");
 }
+
+export function sanitizePathSegment(segment: string): string {
+  return segment
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\.\./g, "")
+    .replace(/^\.+/, "")
+    .trim() || "unknown";
+}
