@@ -2,6 +2,7 @@ import { Modal, TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { ConflictEntry } from "./types";
 import { computeDiff, extractHunks } from "./diff";
+import { stripFrontmatter } from "./frontmatter-manager";
 
 export class ConflictModal extends Modal {
   private plugin: SNSyncPlugin;
@@ -52,10 +53,30 @@ export class ConflictModal extends Modal {
       text: remoteText,
     });
 
+    // Section conflict detail (when available)
+    const sc = this.conflict.sectionConflicts;
+    if (sc && sc.length > 0) {
+      const sectionInfo = contentEl.createDiv({ cls: "sn-conflict-modal-sections" });
+      sectionInfo.createEl("h3", {
+        text: `${sc.length} section conflict${sc.length > 1 ? "s" : ""}`,
+      });
+      for (const s of sc) {
+        const item = sectionInfo.createDiv({ cls: "sn-conflict-section-item" });
+        item.createEl("strong", { text: s.heading });
+        const preview = item.createDiv({ cls: "sn-conflict-section-preview" });
+        const localPre = preview.createDiv({ cls: "sn-conflict-section-local" });
+        localPre.createEl("span", { text: "Local:", cls: "sn-conflict-section-label" });
+        localPre.createEl("pre", { text: s.localBody.slice(0, 200) + (s.localBody.length > 200 ? "..." : "") });
+        const remotePre = preview.createDiv({ cls: "sn-conflict-section-remote" });
+        remotePre.createEl("span", { text: "Remote:", cls: "sn-conflict-section-label" });
+        remotePre.createEl("pre", { text: s.remoteBody.slice(0, 200) + (s.remoteBody.length > 200 ? "..." : "") });
+      }
+    }
+
     // Compute diff
     const rawLocal = await this.app.vault.read(file);
-    const localBody = this.stripFrontmatter(rawLocal);
-    const remoteBody = this.stripFrontmatter(this.conflict.remoteContent);
+    const localBody = stripFrontmatter(rawLocal);
+    const remoteBody = stripFrontmatter(this.conflict.remoteContent);
 
     const diffLines = computeDiff(localBody, remoteBody);
 
@@ -126,12 +147,5 @@ export class ConflictModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
-  }
-
-  private stripFrontmatter(raw: string): string {
-    if (!raw.startsWith("---")) return raw;
-    const endIdx = raw.indexOf("\n---", 3);
-    if (endIdx === -1) return raw;
-    return raw.slice(endIdx + 4).replace(/^\n+/, "");
   }
 }

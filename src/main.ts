@@ -8,6 +8,7 @@ import { FrontmatterManager } from "./frontmatter-manager";
 import { FileWatcher } from "./file-watcher";
 import { ConflictResolver } from "./conflict-resolver";
 import { SyncEngine } from "./sync-engine";
+import { BaseCache } from "./base-cache";
 import type { SNSyncSettings, SyncState, AuthTokens, PluginData } from "./types";
 
 const DEFAULT_SYNC_STATE: SyncState = {
@@ -59,13 +60,15 @@ export default class SNSyncPlugin extends Plugin {
       this.settings.frontmatterPrefix
     );
     this.fileWatcher = new FileWatcher(this, this.frontmatterManager, this.apiClient);
-    this.conflictResolver = new ConflictResolver(this);
+    const baseCache = new BaseCache(this.app, this.manifest.id);
+    this.conflictResolver = new ConflictResolver(this, baseCache);
     this.syncEngine = new SyncEngine(
       this,
       this.apiClient,
       this.frontmatterManager,
       this.fileWatcher,
-      this.conflictResolver
+      this.conflictResolver,
+      baseCache
     );
 
     const redirectUri = this.settings.oauthRedirectUri;

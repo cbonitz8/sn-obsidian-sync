@@ -30,7 +30,11 @@ export interface ConflictEntry {
   remoteContent: string;
   remoteTimestamp: string;
   lockedBy: string;
+  sectionConflicts?: SectionConflict[];
 }
+
+export type CreateDocumentPayload = Pick<SNDocument, "title" | "content" | "category" | "project" | "tags">;
+export type UpdateDocumentPayload = Partial<CreateDocumentPayload>;
 
 export interface SyncState {
   lastSyncTimestamp: string;

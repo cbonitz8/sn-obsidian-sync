@@ -1,6 +1,13 @@
 import type { App, TFile } from "obsidian";
 import type { SNFrontmatter } from "./types";
 
+export function stripFrontmatter(content: string): string {
+  if (!content.startsWith("---")) return content;
+  const endIdx = content.indexOf("\n---", 3);
+  if (endIdx === -1) return content;
+  return content.slice(endIdx + 4).replace(/^\n+/, "");
+}
+
 export class FrontmatterManager {
   private app: App;
   private prefix: string;

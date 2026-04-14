@@ -5,8 +5,12 @@ import type { FrontmatterManager } from "./frontmatter-manager";
 import type { FileWatcher } from "./file-watcher";
 import type { ConflictResolver } from "./conflict-resolver";
 import type { SNDocument, SNMetadata, SyncResult } from "./types";
+import type { BaseCache } from "./base-cache";
 import { resolveFilePath } from "./folder-mapper";
 import { promptNewDocMetadata } from "./new-doc-modal";
+import { stripFrontmatter } from "./frontmatter-manager";
+import { parseSections, serializeSections } from "./section-parser";
+import { mergeSections } from "./section-merger";
 
 export class SyncEngine {
   private plugin: SNSyncPlugin;
@@ -14,6 +18,7 @@ export class SyncEngine {
   private frontmatterManager: FrontmatterManager;
   private fileWatcher: FileWatcher;
   private conflictResolver: ConflictResolver;
+  private baseCache: BaseCache;
   private intervalId: number | null = null;
   private isSyncing = false;
   private cachedMetadata: SNMetadata | null = null;
@@ -24,13 +29,15 @@ export class SyncEngine {
     apiClient: ApiClient,
     frontmatterManager: FrontmatterManager,
     fileWatcher: FileWatcher,
-    conflictResolver: ConflictResolver
+    conflictResolver: ConflictResolver,
+    baseCache: BaseCache
   ) {
     this.plugin = plugin;
     this.apiClient = apiClient;
     this.frontmatterManager = frontmatterManager;
     this.fileWatcher = fileWatcher;
     this.conflictResolver = conflictResolver;
+    this.baseCache = baseCache;
   }
 
   start() {
@@ -380,16 +387,44 @@ export class SyncEngine {
 
       // sys_updated_on can bump for non-content reasons, so compare actual body content
       const localBody = await this.getBodyContent(file);
-      const contentChanged = localBody !== this.stripFrontmatter(doc.content);
+      const contentChanged = localBody !== stripFrontmatter(doc.content);
 
       if (!contentChanged) {
         mapEntry.lastServerTimestamp = doc.sys_updated_on;
       } else {
         const fm = this.frontmatterManager.read(file);
         if (fm.synced === false) {
-          this.conflictResolver.applyConflict(doc.sys_id, mapEntry.path, doc.content, doc.sys_updated_on, doc.checked_out_by || "");
-          result.conflicts++;
+          // Both sides changed — attempt section-level merge
+          const remoteBody = stripFrontmatter(doc.content);
+          const baseBody = await this.baseCache.loadBase(doc.sys_id);
+          const baseSections = baseBody ? parseSections(baseBody) : null;
+          const localSections = parseSections(localBody);
+          const remoteSections = parseSections(remoteBody);
+          const mergeResult = mergeSections(baseSections, localSections, remoteSections);
+
+          if (!mergeResult.hasConflicts) {
+            // Auto-merge succeeded
+            this.fileWatcher.addSyncWritePath(file.path);
+            const merged = await this.rebuildWithFrontmatter(file, mergeResult.mergedBody);
+            await this.plugin.app.vault.modify(file, merged);
+            await this.frontmatterManager.write(file, { ...fm, synced: true });
+            this.fileWatcher.removeSyncWritePath(file.path);
+            await this.baseCache.saveBase(doc.sys_id, mergeResult.mergedBody);
+            mapEntry.lastServerTimestamp = doc.sys_updated_on;
+            result.pulled++;
+          } else {
+            this.conflictResolver.applyConflict({
+              sysId: doc.sys_id,
+              path: mapEntry.path,
+              remoteContent: doc.content,
+              remoteTimestamp: doc.sys_updated_on,
+              lockedBy: doc.checked_out_by || "",
+              sectionConflicts: mergeResult.conflicts,
+            });
+            result.conflicts++;
+          }
         } else {
+          // Local is clean — overwrite with remote
           this.fileWatcher.addSyncWritePath(file.path);
           await this.plugin.app.vault.modify(file, doc.content);
           await this.frontmatterManager.write(file, {
@@ -400,6 +435,7 @@ export class SyncEngine {
             synced: true,
           });
           this.fileWatcher.removeSyncWritePath(file.path);
+          await this.baseCache.saveBase(doc.sys_id, stripFrontmatter(doc.content));
           mapEntry.lastServerTimestamp = doc.sys_updated_on;
           result.pulled++;
         }
@@ -491,7 +527,7 @@ export class SyncEngine {
         if (updateResult.status === 409) {
           const latest = await this.apiClient.getDocument(fm.sys_id);
           if (latest.ok && latest.data) {
-            if (this.stripFrontmatter(latest.data.content) === this.stripFrontmatter(content)) {
+            if (stripFrontmatter(latest.data.content) === stripFrontmatter(content)) {
               await this.apiClient.checkin(fm.sys_id);
               this.fileWatcher.addSyncWritePath(file.path);
               await this.frontmatterManager.markSynced(file);
@@ -499,7 +535,13 @@ export class SyncEngine {
               result.pushed++;
             } else {
               await this.apiClient.checkin(fm.sys_id);
-              this.conflictResolver.applyConflict(fm.sys_id, file.path, latest.data.content, latest.data.sys_updated_on, latest.data.checked_out_by || "");
+              this.conflictResolver.applyConflict({
+                sysId: fm.sys_id,
+                path: file.path,
+                remoteContent: latest.data.content,
+                remoteTimestamp: latest.data.sys_updated_on,
+                lockedBy: latest.data.checked_out_by || "",
+              });
               result.conflicts++;
             }
           } else {
@@ -651,6 +693,8 @@ export class SyncEngine {
       lockedBy: doc.checked_out_by || "",
       lockedAt: doc.checked_out_by ? doc.sys_updated_on : "",
     };
+
+    await this.baseCache.saveBase(doc.sys_id, stripFrontmatter(doc.content));
   }
 
   async ensureFolderExists(folderPath: string) {
@@ -679,16 +723,17 @@ export class SyncEngine {
     return candidate;
   }
 
-  private stripFrontmatter(content: string): string {
-    if (!content.startsWith("---")) return content;
-    const endIdx = content.indexOf("\n---", 3);
-    if (endIdx === -1) return content;
-    return content.slice(endIdx + 4).replace(/^\n+/, "");
+  private async rebuildWithFrontmatter(file: TFile, newBody: string): Promise<string> {
+    const raw = await this.plugin.app.vault.read(file);
+    if (!raw.startsWith("---")) return newBody;
+    const endIdx = raw.indexOf("\n---", 3);
+    if (endIdx === -1) return newBody;
+    return raw.substring(0, endIdx + 4) + "\n" + newBody;
   }
 
   private async getBodyContent(file: TFile): Promise<string> {
     const raw = await this.plugin.app.vault.read(file);
-    return this.stripFrontmatter(raw);
+    return stripFrontmatter(raw);
   }
 
   private async getContentForPush(file: TFile): Promise<string> {

@@ -1,5 +1,5 @@
 import type { AuthManager } from "./auth-manager";
-import type { SNDocument, SNMetadata } from "./types";
+import type { SNDocument, SNMetadata, CreateDocumentPayload, UpdateDocumentPayload } from "./types";
 
 interface ApiResponse<T> {
   ok: boolean;
@@ -71,19 +71,13 @@ export class ApiClient {
     return this.request<SNDocument[]>("GET", `/documents/changes?since=${encodeURIComponent(since)}`);
   }
 
-  async createDocument(doc: {
-    title: string;
-    content: string;
-    category: string;
-    project: string;
-    tags: string;
-  }): Promise<ApiResponse<SNDocument>> {
+  async createDocument(doc: CreateDocumentPayload): Promise<ApiResponse<SNDocument>> {
     return this.request<SNDocument>("POST", "/documents", doc);
   }
 
   async updateDocument(
     id: string,
-    doc: { title?: string; content?: string; category?: string; project?: string; tags?: string }
+    doc: UpdateDocumentPayload
   ): Promise<ApiResponse<SNDocument>> {
     return this.request<SNDocument>("PUT", `/documents/${id}`, doc);
   }

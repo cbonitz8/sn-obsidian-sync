@@ -1,7 +1,9 @@
 import { Notice, TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { ConflictEntry } from "./types";
+import type { BaseCache } from "./base-cache";
 import { ConflictModal } from "./conflict-modal";
+import { stripFrontmatter } from "./frontmatter-manager";
 
 const MARKER_LOCAL = "<<<<<<< Local (Obsidian)";
 const MARKER_SEPARATOR = "=======";
@@ -34,15 +36,16 @@ export function stripConflictMarkers(content: string): string {
 
 export class ConflictResolver {
   private plugin: SNSyncPlugin;
+  private baseCache: BaseCache;
 
-  constructor(plugin: SNSyncPlugin) {
+  constructor(plugin: SNSyncPlugin, baseCache: BaseCache) {
     this.plugin = plugin;
+    this.baseCache = baseCache;
   }
 
-  applyConflict(sysId: string, path: string, remoteContent: string, remoteTimestamp: string, lockedBy: string) {
-    const conflict: ConflictEntry = { sysId, path, remoteContent, remoteTimestamp, lockedBy };
-    this.plugin.syncState.conflicts[sysId] = conflict;
-    new ConflictModal(this.plugin, conflict).open();
+  applyConflict(entry: ConflictEntry) {
+    this.plugin.syncState.conflicts[entry.sysId] = entry;
+    new ConflictModal(this.plugin, entry).open();
   }
 
   async resolveWithPull(sysId: string) {
@@ -79,6 +82,8 @@ export class ConflictResolver {
       entry.lastServerTimestamp = conflict.remoteTimestamp;
     }
 
+    await this.baseCache.saveBase(sysId, stripFrontmatter(conflict.remoteContent));
+
     delete this.plugin.syncState.conflicts[sysId];
     await this.plugin.saveSettings();
 
@@ -100,6 +105,8 @@ export class ConflictResolver {
 
     const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
     if (file instanceof TFile) {
+      const raw = await this.plugin.app.vault.read(file);
+      await this.baseCache.saveBase(sysId, stripFrontmatter(raw));
       await this.plugin.frontmatterManager.markDirty(file);
     }
 
@@ -133,8 +140,8 @@ export class ConflictResolver {
       }
 
       const raw = await this.plugin.app.vault.read(file);
-      const localBody = this.stripFrontmatter(raw);
-      const remoteBody = this.stripFrontmatter(conflict.remoteContent);
+      const localBody = stripFrontmatter(raw);
+      const remoteBody = stripFrontmatter(conflict.remoteContent);
       if (localBody === remoteBody) {
         delete this.plugin.syncState.conflicts[sysId];
         this.plugin.fileWatcher.addSyncWritePath(conflict.path);
@@ -157,13 +164,6 @@ export class ConflictResolver {
     this.plugin.syncState.conflicts = {};
     await this.plugin.saveSettings();
     return count;
-  }
-
-  stripFrontmatter(raw: string): string {
-    if (!raw.startsWith("---")) return raw;
-    const endIdx = raw.indexOf("\n---", 3);
-    if (endIdx === -1) return raw;
-    return raw.slice(endIdx + 4).replace(/^\n+/, "");
   }
 
   async migrateMarkerFiles() {
