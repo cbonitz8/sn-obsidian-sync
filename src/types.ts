@@ -86,6 +86,8 @@ export interface SNSyncSettings {
   folderMapping: FolderMapping;
   excludePaths: string[];
   username: string;
+  vaultName: string;
+  vaultPath: string;
 }
 
 export interface PluginData {

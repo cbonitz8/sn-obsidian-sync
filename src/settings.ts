@@ -34,6 +34,8 @@ export const DEFAULT_SETTINGS: SNSyncSettings = {
   folderMapping: DEFAULT_FOLDER_MAPPING,
   excludePaths: [],
   username: "",
+  vaultName: "",
+  vaultPath: "",
 };
 
 export class SNSyncSettingTab extends PluginSettingTab {
@@ -193,6 +195,32 @@ export class SNSyncSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.username)
           .onChange(async (value) => {
             this.plugin.settings.username = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Vault name")
+      .setDesc("Name of this Obsidian vault (used by CLI integrations)")
+      .addText((text) =>
+        text
+          .setPlaceholder("e.g. Ethos")
+          .setValue(this.plugin.settings.vaultName)
+          .onChange(async (value) => {
+            this.plugin.settings.vaultName = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Vault path")
+      .setDesc("Absolute path to this vault on disk")
+      .addText((text) =>
+        text
+          .setPlaceholder("/Users/you/Obsidian/MyVault")
+          .setValue(this.plugin.settings.vaultPath)
+          .onChange(async (value) => {
+            this.plugin.settings.vaultPath = value;
             await this.plugin.saveSettings();
           })
       );
