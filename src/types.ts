@@ -21,6 +21,7 @@ export interface DocMapEntry {
   lastServerTimestamp: string;
   lockedBy: string;
   lockedAt: string;
+  lastSyncedBody?: string;
 }
 
 export interface ConflictEntry {
@@ -104,4 +105,34 @@ export interface SyncResult {
   pushed: number;
   conflicts: number;
   errors: string[];
+}
+
+export interface SectionBlock {
+  heading: string;
+  key: string;
+  body: string;
+  hash: string;
+}
+
+export interface SectionConflict {
+  key: string;
+  heading: string;
+  localBody: string;
+  remoteBody: string;
+  baseBody: string | null;
+}
+
+export type SectionOutcome =
+  | { status: "unchanged" }
+  | { status: "accepted_remote"; body: string }
+  | { status: "kept_local"; body: string }
+  | { status: "added"; source: "local" | "remote"; body: string }
+  | { status: "deleted"; source: "local" | "remote" }
+  | { status: "conflict"; conflict: SectionConflict };
+
+export interface MergeResult {
+  mergedBody: string;
+  outcomes: Map<string, SectionOutcome>;
+  conflicts: SectionConflict[];
+  hasConflicts: boolean;
 }
