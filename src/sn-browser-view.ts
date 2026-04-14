@@ -43,6 +43,13 @@ export class SNBrowserView extends ItemView {
     await this.render();
   }
 
+  async showConflict(sysId: string) {
+    this.activeTab = "settings";
+    this.expandedConflictId = sysId;
+    this.showDiffForConflict = null;
+    await this.render();
+  }
+
   async onClose() {}
 
   private async render() {

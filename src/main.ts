@@ -1,5 +1,4 @@
 import { Notice, Plugin } from "obsidian";
-import { ConflictModal } from "./conflict-modal";
 import { SNBrowserView, VIEW_TYPE_SN_BROWSER } from "./sn-browser-view";
 import { DEFAULT_SETTINGS, DEFAULT_FOLDER_MAPPING, SNSyncSettingTab } from "./settings";
 import { AuthManager } from "./auth-manager";
@@ -186,6 +185,7 @@ export default class SNSyncPlugin extends Plugin {
     this.fileWatcher.start();
     this.syncEngine.start();
     void this.conflictResolver.migrateMarkerFiles();
+    void this.checkDuplicateSysIds();
 
     void this.conflictResolver.clearStaleConflicts().then((cleared) => {
       if (cleared > 0) {
@@ -230,6 +230,48 @@ export default class SNSyncPlugin extends Plugin {
 
   async fetchMetadata() {
     return this.apiClient.getMetadata();
+  }
+
+  async openConflictInBrowser(sysId: string) {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SN_BROWSER);
+    let leaf;
+    if (existing.length > 0) {
+      leaf = existing[0]!;
+      void this.app.workspace.revealLeaf(leaf);
+    } else {
+      leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_SN_BROWSER, active: true });
+    }
+    const view = leaf.view;
+    if (view instanceof SNBrowserView) {
+      await view.showConflict(sysId);
+    }
+  }
+
+  private async checkDuplicateSysIds() {
+    const prefix = this.settings.frontmatterPrefix;
+    const sysIdMap = new Map<string, string[]>();
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const sysId = cache?.frontmatter?.[`${prefix}sys_id`];
+      if (!sysId) continue;
+      const paths = sysIdMap.get(sysId);
+      if (paths) {
+        paths.push(file.path);
+      } else {
+        sysIdMap.set(sysId, [file.path]);
+      }
+    }
+
+    const duplicates = Array.from(sysIdMap.entries()).filter(([, paths]) => paths.length > 1);
+    if (duplicates.length > 0) {
+      for (const [sysId, paths] of duplicates) {
+        console.warn(`Snobby: duplicate sn_sys_id ${sysId.slice(0, 8)} on: ${paths.join(", ")}`);
+      }
+      const count = duplicates.reduce((sum, [, p]) => sum + p.length, 0);
+      new Notice(`Snobby: ${count} files share duplicate sys_ids. Check console for details. Files created from templates may need sn_sys_id cleared.`, 10000);
+    }
   }
 
   restartSyncEngine() {
@@ -320,7 +362,7 @@ export default class SNSyncPlugin extends Plugin {
       cls: "sn-action-btn sn-conflict-notice-btn",
     });
     viewBtn.addEventListener("click", () => {
-      new ConflictModal(this, conflict).open();
+      void this.openConflictInBrowser(conflict.sysId);
       if (this.activeConflictNotice) {
         this.activeConflictNotice.hide();
         this.activeConflictNotice = null;
