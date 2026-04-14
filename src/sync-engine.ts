@@ -247,6 +247,7 @@ export class SyncEngine {
             lockedAt: "",
           };
 
+          await this.baseCache.saveBase(newDoc.sys_id, stripFrontmatter(content));
           result.pushed++;
           if ((i + 1) % 10 === 0) {
             new Notice(`Bulk push: ${i + 1}/${total} uploaded`);
@@ -533,6 +534,7 @@ export class SyncEngine {
               this.fileWatcher.addSyncWritePath(file.path);
               await this.frontmatterManager.markSynced(file);
               this.fileWatcher.removeSyncWritePath(file.path);
+              await this.baseCache.saveBase(fm.sys_id, stripFrontmatter(content));
               result.pushed++;
             } else {
               await this.apiClient.checkin(fm.sys_id);
@@ -570,6 +572,7 @@ export class SyncEngine {
         entry.lockedAt = "";
       }
 
+      await this.baseCache.saveBase(fm.sys_id, stripFrontmatter(content));
       result.pushed++;
     } else {
       let category = fm.category ?? "";
@@ -631,6 +634,7 @@ export class SyncEngine {
         lockedAt: "",
       };
 
+      await this.baseCache.saveBase(newDoc.sys_id, stripFrontmatter(content));
       result.pushed++;
     }
   }
