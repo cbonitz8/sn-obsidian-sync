@@ -77,6 +77,7 @@ export class SyncEngine {
     const result: SyncResult = { pulled: 0, pushed: 0, conflicts: 0, errors: [] };
 
     try {
+      await this.fileWatcher.flushPending();
       await this.pull(result);
       this.warnLockedDirtyFiles();
       await this.push(result);
@@ -395,10 +396,12 @@ export class SyncEngine {
         mapEntry.lastServerTimestamp = doc.sys_updated_on;
       } else {
         const fm = this.frontmatterManager.read(file);
-        if (fm.synced === false) {
+        // Metadata cache can be stale — also check if local body differs from last known base
+        const baseBody = await this.baseCache.loadBase(doc.sys_id);
+        const localDirty = fm.synced === false || (baseBody !== null && localBody !== baseBody);
+        if (localDirty) {
           // Both sides changed — attempt section-level merge
           const remoteBody = stripFrontmatter(doc.content);
-          const baseBody = await this.baseCache.loadBase(doc.sys_id);
           const baseSections = baseBody ? parseSections(baseBody) : null;
           const localSections = parseSections(localBody);
           const remoteSections = parseSections(remoteBody);

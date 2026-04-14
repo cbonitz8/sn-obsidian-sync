@@ -144,6 +144,18 @@ export class FileWatcher {
     }
   }
 
+  async flushPending(): Promise<void> {
+    const pending = Array.from(this.debounceTimers.entries());
+    for (const [path, timer] of pending) {
+      clearTimeout(timer);
+      this.debounceTimers.delete(path);
+      const file = this.plugin.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile) {
+        await this.handleFileModified(file);
+      }
+    }
+  }
+
   getDirtyFiles(): TFile[] {
     const allFiles = this.plugin.app.vault.getMarkdownFiles();
     const dirtyFiles: TFile[] = [];
