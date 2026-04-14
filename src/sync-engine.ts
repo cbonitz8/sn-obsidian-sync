@@ -9,7 +9,7 @@ import type { BaseCache } from "./base-cache";
 import { resolveFilePath } from "./folder-mapper";
 import { promptNewDocMetadata } from "./new-doc-modal";
 import { stripFrontmatter } from "./frontmatter-manager";
-import { parseSections, serializeSections } from "./section-parser";
+import { parseSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
 
 export class SyncEngine {
@@ -409,7 +409,7 @@ export class SyncEngine {
             this.fileWatcher.addSyncWritePath(file.path);
             const merged = await this.rebuildWithFrontmatter(file, mergeResult.mergedBody);
             await this.plugin.app.vault.modify(file, merged);
-            await this.frontmatterManager.write(file, { ...fm, synced: true });
+            await this.frontmatterManager.write(file, { ...fm, synced: false });
             this.fileWatcher.removeSyncWritePath(file.path);
             await this.baseCache.saveBase(doc.sys_id, mergeResult.mergedBody);
             mapEntry.lastServerTimestamp = doc.sys_updated_on;

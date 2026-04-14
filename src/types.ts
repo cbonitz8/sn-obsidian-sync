@@ -21,7 +21,6 @@ export interface DocMapEntry {
   lastServerTimestamp: string;
   lockedBy: string;
   lockedAt: string;
-  lastSyncedBody?: string;
 }
 
 export interface ConflictEntry {
