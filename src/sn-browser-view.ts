@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf, Notice, Menu, TFile, Modal, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata, ConflictEntry } from "./types";
+import { computeSideBySide } from "./diff";
+import { stripFrontmatter } from "./frontmatter-manager";
 
 export const VIEW_TYPE_SN_BROWSER = "sn-document-browser";
 
@@ -392,8 +394,155 @@ export class SNBrowserView extends ItemView {
   }
 
   private renderDrillIn(container: HTMLElement, conflict: ConflictEntry) {
-    // Implemented in Task 7
-    container.createEl("p", { text: "Drill-in view — coming soon" });
+    const drillIn = container.createDiv({ cls: "sn-drill-in" });
+
+    // Header with back button
+    const header = drillIn.createDiv({ cls: "sn-drill-in-header" });
+    const backBtn = header.createEl("button", { text: "← back", cls: "sn-drill-in-back" });
+    backBtn.addEventListener("click", () => {
+      this.viewMode = "triage";
+      this.drillInSysId = null;
+      void this.render();
+    });
+    const fileName = conflict.path.split("/").pop() ?? conflict.path;
+    header.createEl("span", { text: fileName, cls: "sn-drill-in-filename" });
+
+    // Metadata
+    const meta = drillIn.createDiv({ cls: "sn-drill-in-meta" });
+    if (conflict.remoteTimestamp) {
+      const remoteMtime = new Date(conflict.remoteTimestamp.replace(" ", "T"));
+      const remoteTimeStr = isNaN(remoteMtime.getTime())
+        ? conflict.remoteTimestamp
+        : remoteMtime.toLocaleString();
+      meta.createEl("span", { text: `Remote modified: ${remoteTimeStr}` });
+    }
+    if (conflict.lockedBy) {
+      meta.createEl("span", { text: ` · Locked by: ${conflict.lockedBy}` });
+    }
+
+    const sc = conflict.sectionConflicts;
+    const hasSections = sc && sc.length > 0;
+
+    if (!this.perSectionChoices.has(conflict.sysId)) {
+      this.perSectionChoices.set(conflict.sysId, new Map());
+    }
+    const choices = this.perSectionChoices.get(conflict.sysId)!;
+
+    if (hasSections) {
+      // Render each conflicting section as a side-by-side diff
+      for (const s of sc) {
+        const sectionBlock = drillIn.createDiv({ cls: "sn-drill-in-section" });
+
+        const sectionHeader = sectionBlock.createDiv({ cls: "sn-drill-in-section-header" });
+        const name = s.heading.replace(/^###\s*/, "");
+        sectionHeader.createEl("span", { text: name });
+
+        const sectionBtns = sectionHeader.createDiv({ cls: "sn-drill-in-section-btns" });
+        const currentChoice = choices.get(s.key);
+
+        const remoteBtn = sectionBtns.createEl("button", {
+          text: "Accept remote",
+          cls: `sn-conflict-quick-btn ${currentChoice === "remote" ? "is-chosen" : ""}`,
+        });
+        remoteBtn.addEventListener("click", () => {
+          choices.set(s.key, "remote");
+          void this.render();
+        });
+
+        const localBtn = sectionBtns.createEl("button", {
+          text: "Keep local",
+          cls: `sn-conflict-quick-btn ${currentChoice === "local" ? "is-chosen" : ""}`,
+        });
+        localBtn.addEventListener("click", () => {
+          choices.set(s.key, "local");
+          void this.render();
+        });
+
+        // Side-by-side diff
+        this.renderSideBySide(sectionBlock, s.localBody, s.remoteBody);
+      }
+
+      // Apply button
+      const actions = drillIn.createDiv({ cls: "sn-drill-in-actions" });
+      if (choices.size === sc.length) {
+        const applyBtn = actions.createEl("button", {
+          text: "Apply all choices",
+          cls: "sn-action-btn mod-cta",
+        });
+        applyBtn.addEventListener("click", () => {
+          void (async () => {
+            await this.plugin.conflictResolver.resolvePerSection(conflict.sysId, choices);
+            this.perSectionChoices.delete(conflict.sysId);
+            this.viewMode = "triage";
+            this.drillInSysId = null;
+            await this.render();
+          })();
+        });
+      } else {
+        actions.createEl("p", {
+          text: `Choose resolution for all ${sc.length} sections to apply.`,
+          cls: "sn-drill-in-meta",
+        });
+      }
+    } else {
+      // Whole-file fallback: single side-by-side diff
+      const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
+      if (file instanceof TFile) {
+        void (async () => {
+          const rawLocal = await this.plugin.app.vault.read(file);
+          const localBody = stripFrontmatter(rawLocal);
+          const remoteBody = stripFrontmatter(conflict.remoteContent);
+          this.renderSideBySide(drillIn, localBody, remoteBody);
+
+          const actions = drillIn.createDiv({ cls: "sn-drill-in-actions" });
+          const pullBtn = actions.createEl("button", { text: "Accept remote", cls: "sn-action-btn mod-cta" });
+          pullBtn.addEventListener("click", () => {
+            void (async () => {
+              await this.plugin.conflictResolver.resolveWithPull(conflict.sysId);
+              this.viewMode = "triage";
+              this.drillInSysId = null;
+              await this.render();
+            })();
+          });
+          const pushBtn = actions.createEl("button", { text: "Keep local", cls: "sn-action-btn" });
+          pushBtn.addEventListener("click", () => {
+            void (async () => {
+              await this.plugin.conflictResolver.resolveWithPush(conflict.sysId);
+              this.viewMode = "triage";
+              this.drillInSysId = null;
+              await this.render();
+            })();
+          });
+        })();
+      }
+    }
+  }
+
+  private renderSideBySide(container: HTMLElement, localBody: string, remoteBody: string) {
+    const lines = computeSideBySide(localBody, remoteBody);
+
+    if (lines.length === 0) {
+      container.createEl("p", { text: "Contents are identical.", cls: "sn-conflict-empty" });
+      return;
+    }
+
+    const grid = container.createDiv({ cls: "sn-side-by-side" });
+
+    // Column headers
+    grid.createDiv({ cls: "sn-side-by-side-header", text: "Local (Obsidian)" });
+    grid.createDiv({ cls: "sn-side-by-side-header", text: "Remote (ServiceNow)" });
+
+    for (const line of lines) {
+      const leftCls = line.left
+        ? `sn-side-by-side-cell sn-diff-${line.left.type}`
+        : "sn-side-by-side-cell sn-diff-empty";
+      const rightCls = line.right
+        ? `sn-side-by-side-cell sn-diff-${line.right.type}`
+        : "sn-side-by-side-cell sn-diff-empty";
+
+      grid.createDiv({ cls: leftCls, text: line.left?.text ?? "" });
+      grid.createDiv({ cls: rightCls, text: line.right?.text ?? "" });
+    }
   }
 
   private renderTriageList(container: HTMLElement, conflicts: ConflictEntry[]) {
