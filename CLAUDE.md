@@ -8,7 +8,7 @@ Bidirectional sync between Obsidian and ServiceNow via Scripted REST API. Obsidi
 - **Dev:** `npm run dev` (watch mode)
 - **Test:** `npm test` (vitest)
 - **Lint:** `npm run lint` (eslint with obsidianmd plugin)
-- **Version:** 0.2.2
+- **Version:** 0.9.0
 
 ## Architecture
 
