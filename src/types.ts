@@ -7,6 +7,7 @@ export interface SNDocument {
   tags: string;
   sys_updated_on: string;
   checked_out_by: string;
+  content_hash: string;
 }
 
 export interface SNMetadata {
@@ -21,6 +22,7 @@ export interface DocMapEntry {
   lastServerTimestamp: string;
   lockedBy: string;
   lockedAt: string;
+  contentHash: string;
 }
 
 export interface ConflictEntry {
@@ -30,10 +32,19 @@ export interface ConflictEntry {
   remoteTimestamp: string;
   lockedBy: string;
   sectionConflicts?: SectionConflict[];
+  ancestorContent?: string;
 }
 
 export type CreateDocumentPayload = Pick<SNDocument, "title" | "content" | "category" | "project" | "tags">;
-export type UpdateDocumentPayload = Partial<CreateDocumentPayload>;
+export type UpdateDocumentPayload = Partial<CreateDocumentPayload> & { expected_hash?: string };
+
+export interface ConflictResponseData {
+  conflict: boolean;
+  content_hash: string;
+  content: string;
+  sys_updated_on: string;
+  ancestor_content: string | null;
+}
 
 export interface SyncState {
   lastSyncTimestamp: string;
