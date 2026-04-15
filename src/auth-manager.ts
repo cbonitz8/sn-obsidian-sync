@@ -153,7 +153,7 @@ export class AuthManager {
       });
       return { status: response.status, json: response.json };
     } catch (e: unknown) {
-      const err = e as { status?: number };
+      const err = e as { status?: number; json?: Record<string, unknown> };
       if (err.status === 401) {
         const refreshed = await this.refreshAccessToken();
         if (!refreshed) return null;
@@ -165,6 +165,9 @@ export class AuthManager {
           body: options.body,
         });
         return { status: retry.status, json: retry.json };
+      }
+      if (err.status && err.json) {
+        return { status: err.status, json: err.json };
       }
       throw e;
     }
