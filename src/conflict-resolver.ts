@@ -165,7 +165,9 @@ export class ConflictResolver {
     const raw = await this.plugin.app.vault.read(file);
     const localBody = stripFrontmatter(raw);
     const remoteBody = stripFrontmatter(conflict.remoteContent);
-    const baseBody = await this.baseCache.loadBase(sysId);
+    const baseBody = conflict.ancestorContent
+      ? stripFrontmatter(conflict.ancestorContent)
+      : await this.baseCache.loadBase(sysId);
 
     const mergedBody = assemblePerSectionMerge(localBody, remoteBody, baseBody, choices);
 
