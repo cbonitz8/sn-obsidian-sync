@@ -2,7 +2,6 @@ import { Notice, TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { ConflictEntry } from "./types";
 import type { BaseCache } from "./base-cache";
-import { ConflictModal } from "./conflict-modal";
 import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections, serializeSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
@@ -81,7 +80,6 @@ export class ConflictResolver {
 
   applyConflict(entry: ConflictEntry) {
     this.plugin.syncState.conflicts[entry.sysId] = entry;
-    new ConflictModal(this.plugin, entry).open();
   }
 
   async resolveWithPull(sysId: string) {
