@@ -71,7 +71,7 @@ export default class SNSyncPlugin extends Plugin {
     );
 
     const redirectUri = this.settings.oauthRedirectUri;
-    const handlerMatch = redirectUri.match(/^obsidian:\/\/(.+)/);
+    const handlerMatch = redirectUri.match(/^obsidian:\/\/([^/?]+)/);
     if (handlerMatch) {
       this.registerObsidianProtocolHandler(handlerMatch[1]!, async (params) => {
         if (params.code) {
