@@ -334,6 +334,10 @@ sn_synced: true
 
 Also: click the status bar item ("SN: synced") to trigger a manual sync.
 
+## Companion Plugins
+
+**[obsidian-session-logging](https://github.com/cbonitz8/obsidian-session-logging)** — A Claude Code plugin that manages session logs, daily logs, standups, and project overviews in the same vault Snobby syncs. It understands the `sn_` frontmatter fields and handles them correctly when creating new files (clearing inherited `sn_sys_id`, setting `sn_synced: false`). If you use Claude Code for development, this plugin gives your AI assistant structured context about what you've been working on.
+
 ## Development
 
 ```bash
