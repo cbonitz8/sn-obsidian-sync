@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDiff, extractHunks, type DiffLine } from "./diff";
+import { computeDiff, extractHunks, computeSideBySide, type DiffLine, type SideBySideLine } from "./diff";
 
 describe("computeDiff", () => {
   it("returns empty array for identical content", () => {
@@ -132,5 +132,70 @@ describe("extractHunks", () => {
     expect(hunks).toHaveLength(2);
     expect(hunks[0]!.lines[0]!.text).toBe("a");
     expect(hunks[1]!.lines[hunks[1]!.lines.length - 1]!.text).toBe("b");
+  });
+});
+
+describe("computeSideBySide", () => {
+  it("returns empty array for identical content", () => {
+    const result = computeSideBySide("hello\nworld", "hello\nworld");
+    expect(result).toEqual([]);
+  });
+
+  it("pairs context lines on both sides", () => {
+    const result = computeSideBySide("a\nold\nc", "a\nnew\nc");
+    expect(result).toContainEqual({
+      left: { text: "a", type: "context" },
+      right: { text: "a", type: "context" },
+    });
+    expect(result).toContainEqual({
+      left: { text: "c", type: "context" },
+      right: { text: "c", type: "context" },
+    });
+  });
+
+  it("shows removed lines on left with null on right", () => {
+    const result = computeSideBySide("a\nb\nc", "a\nc");
+    const removedRow = result.find((r) => r.left?.text === "b");
+    expect(removedRow).toBeDefined();
+    expect(removedRow!.left).toEqual({ text: "b", type: "removed" });
+    expect(removedRow!.right).toBeNull();
+  });
+
+  it("shows added lines on right with null on left", () => {
+    const result = computeSideBySide("a\nc", "a\nb\nc");
+    const addedRow = result.find((r) => r.right?.text === "b");
+    expect(addedRow).toBeDefined();
+    expect(addedRow!.left).toBeNull();
+    expect(addedRow!.right).toEqual({ text: "b", type: "added" });
+  });
+
+  it("pairs changed lines side by side", () => {
+    const result = computeSideBySide("a\nold\nc", "a\nnew\nc");
+    const changedRow = result.find((r) => r.left?.text === "old");
+    expect(changedRow).toBeDefined();
+    expect(changedRow!.left).toEqual({ text: "old", type: "removed" });
+    expect(changedRow!.right).toEqual({ text: "new", type: "added" });
+  });
+
+  it("handles multiple consecutive changes with unequal counts", () => {
+    const result = computeSideBySide("a\nx\ny\nc", "a\np\nc");
+    const xRow = result.find((r) => r.left?.text === "x");
+    expect(xRow!.right).toEqual({ text: "p", type: "added" });
+    const yRow = result.find((r) => r.left?.text === "y");
+    expect(yRow!.right).toBeNull();
+  });
+
+  it("handles empty local content", () => {
+    const result = computeSideBySide("", "new line");
+    expect(result).toEqual([
+      { left: null, right: { text: "new line", type: "added" } },
+    ]);
+  });
+
+  it("handles empty remote content", () => {
+    const result = computeSideBySide("old line", "");
+    expect(result).toEqual([
+      { left: { text: "old line", type: "removed" }, right: null },
+    ]);
   });
 });

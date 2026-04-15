@@ -3,6 +3,16 @@ export interface DiffLine {
   text: string;
 }
 
+export interface SideBySideCell {
+  text: string;
+  type: "context" | "added" | "removed";
+}
+
+export interface SideBySideLine {
+  left: SideBySideCell | null;
+  right: SideBySideCell | null;
+}
+
 /**
  * Compute the longest common subsequence of two string arrays.
  * Returns an array of [indexInA, indexInB] pairs for matched lines.
@@ -129,4 +139,55 @@ export function extractHunks(diffLines: DiffLine[]): Hunk[] {
   return ranges.map(([start, end]) => ({
     lines: diffLines.slice(start, end + 1),
   }));
+}
+
+/**
+ * Compute a side-by-side diff between local and remote content.
+ * Returns paired lines: context on both sides, removed on left only,
+ * added on right only. Adjacent removed+added runs are paired row-by-row.
+ * Returns empty array if contents are identical.
+ */
+export function computeSideBySide(local: string, remote: string): SideBySideLine[] {
+  const diffLines = computeDiff(local, remote);
+  if (diffLines.length === 0) return [];
+
+  const result: SideBySideLine[] = [];
+  let i = 0;
+
+  while (i < diffLines.length) {
+    const line = diffLines[i]!;
+
+    if (line.type === "context") {
+      result.push({
+        left: { text: line.text, type: "context" },
+        right: { text: line.text, type: "context" },
+      });
+      i++;
+      continue;
+    }
+
+    // Collect consecutive removed + added runs
+    const removed: DiffLine[] = [];
+    const added: DiffLine[] = [];
+    while (i < diffLines.length && diffLines[i]!.type === "removed") {
+      removed.push(diffLines[i]!);
+      i++;
+    }
+    while (i < diffLines.length && diffLines[i]!.type === "added") {
+      added.push(diffLines[i]!);
+      i++;
+    }
+
+    const maxLen = Math.max(removed.length, added.length);
+    for (let j = 0; j < maxLen; j++) {
+      const leftLine = removed[j] ?? null;
+      const rightLine = added[j] ?? null;
+      result.push({
+        left: leftLine ? { text: leftLine.text, type: "removed" } : null,
+        right: rightLine ? { text: rightLine.text, type: "added" } : null,
+      });
+    }
+  }
+
+  return result;
 }
