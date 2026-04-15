@@ -141,6 +141,51 @@ export function extractHunks(diffLines: DiffLine[]): Hunk[] {
   }));
 }
 
+export interface SideBySideHunk {
+  lines: SideBySideLine[];
+}
+
+/**
+ * Extract hunks from side-by-side lines, showing only changed regions
+ * with surrounding context. Same logic as extractHunks but for SideBySideLine[].
+ */
+export function extractSideBySideHunks(sideBySideLines: SideBySideLine[]): SideBySideHunk[] {
+  if (sideBySideLines.length === 0) return [];
+
+  const changeIndices: number[] = [];
+  for (let i = 0; i < sideBySideLines.length; i++) {
+    const line = sideBySideLines[i]!;
+    const isContext = line.left?.type === "context" && line.right?.type === "context";
+    if (!isContext) {
+      changeIndices.push(i);
+    }
+  }
+
+  if (changeIndices.length === 0) return [];
+
+  const ranges: [number, number][] = [];
+  let rangeStart = Math.max(0, changeIndices[0]! - CONTEXT_LINES);
+  let rangeEnd = Math.min(sideBySideLines.length - 1, changeIndices[0]! + CONTEXT_LINES);
+
+  for (let i = 1; i < changeIndices.length; i++) {
+    const newStart = Math.max(0, changeIndices[i]! - CONTEXT_LINES);
+    const newEnd = Math.min(sideBySideLines.length - 1, changeIndices[i]! + CONTEXT_LINES);
+
+    if (newStart <= rangeEnd + 1) {
+      rangeEnd = newEnd;
+    } else {
+      ranges.push([rangeStart, rangeEnd]);
+      rangeStart = newStart;
+      rangeEnd = newEnd;
+    }
+  }
+  ranges.push([rangeStart, rangeEnd]);
+
+  return ranges.map(([start, end]) => ({
+    lines: sideBySideLines.slice(start, end + 1),
+  }));
+}
+
 /**
  * Compute a side-by-side diff between local and remote content.
  * Returns paired lines: context on both sides, removed on left only,

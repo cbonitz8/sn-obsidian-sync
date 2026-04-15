@@ -802,6 +802,14 @@
   background: var(--background-secondary-alt);
 }
 
+.sn-side-by-side-cell.sn-diff-separator {
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  padding: 2px 0;
+  font-size: var(--font-ui-smaller);
+}
+
 /* --- Drill-in action bar --- */
 
 .sn-drill-in-actions {

@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice, Menu, TFile, Modal, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata, ConflictEntry } from "./types";
-import { computeSideBySide } from "./diff";
+import { computeSideBySide, extractSideBySideHunks } from "./diff";
 import { stripFrontmatter } from "./frontmatter-manager";
 
 export const VIEW_TYPE_SN_BROWSER = "sn-document-browser";
@@ -519,12 +519,14 @@ export class SNBrowserView extends ItemView {
   }
 
   private renderSideBySide(container: HTMLElement, localBody: string, remoteBody: string) {
-    const lines = computeSideBySide(localBody, remoteBody);
+    const allLines = computeSideBySide(localBody, remoteBody);
 
-    if (lines.length === 0) {
+    if (allLines.length === 0) {
       container.createEl("p", { text: "Contents are identical.", cls: "sn-conflict-empty" });
       return;
     }
+
+    const hunks = extractSideBySideHunks(allLines);
 
     const grid = container.createDiv({ cls: "sn-side-by-side" });
 
@@ -532,16 +534,22 @@ export class SNBrowserView extends ItemView {
     grid.createDiv({ cls: "sn-side-by-side-header", text: "Local (Obsidian)" });
     grid.createDiv({ cls: "sn-side-by-side-header", text: "Remote (ServiceNow)" });
 
-    for (const line of lines) {
-      const leftCls = line.left
-        ? `sn-side-by-side-cell sn-diff-${line.left.type}`
-        : "sn-side-by-side-cell sn-diff-empty";
-      const rightCls = line.right
-        ? `sn-side-by-side-cell sn-diff-${line.right.type}`
-        : "sn-side-by-side-cell sn-diff-empty";
+    for (let h = 0; h < hunks.length; h++) {
+      if (h > 0) {
+        grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-separator", text: "\u22EF" });
+        grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-separator", text: "\u22EF" });
+      }
+      for (const line of hunks[h]!.lines) {
+        const leftCls = line.left
+          ? `sn-side-by-side-cell sn-diff-${line.left.type}`
+          : "sn-side-by-side-cell sn-diff-empty";
+        const rightCls = line.right
+          ? `sn-side-by-side-cell sn-diff-${line.right.type}`
+          : "sn-side-by-side-cell sn-diff-empty";
 
-      grid.createDiv({ cls: leftCls, text: line.left?.text ?? "" });
-      grid.createDiv({ cls: rightCls, text: line.right?.text ?? "" });
+        grid.createDiv({ cls: leftCls, text: line.left?.text ?? "" });
+        grid.createDiv({ cls: rightCls, text: line.right?.text ?? "" });
+      }
     }
   }
 
