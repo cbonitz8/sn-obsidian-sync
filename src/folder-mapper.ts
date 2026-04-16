@@ -37,6 +37,12 @@ export function resolveFilePath(
   return parts.filter((p) => p.length > 0).join("/");
 }
 
+export function isTopLevelCategory(mapping: FolderMapping, category: string): boolean {
+  const catMapping = mapping.categories[category];
+  if (!catMapping) return false;
+  return typeof catMapping !== "string" && catMapping.topLevel === true;
+}
+
 export function sanitizeTitle(title: string): string {
   const trimmed = title.trim();
   if (trimmed.length === 0) return "Untitled";

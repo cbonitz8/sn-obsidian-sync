@@ -37,7 +37,6 @@ export default class SNSyncPlugin extends Plugin {
   syncEngine!: SyncEngine;
   private statusBarEl: HTMLElement | null = null;
   private pendingCount = 0;
-  private activeLockNotice: Notice | null = null;
   private activeConflictNotice: Notice | null = null;
 
   async onload() {
@@ -195,7 +194,6 @@ export default class SNSyncPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        this.checkActiveLockState();
         this.checkActiveConflictState();
       })
     );
@@ -310,32 +308,6 @@ export default class SNSyncPlugin extends Plugin {
 
   setPendingCount(count: number) {
     this.pendingCount = count;
-  }
-
-  private checkActiveLockState() {
-    if (this.activeLockNotice) {
-      this.activeLockNotice.hide();
-      this.activeLockNotice = null;
-    }
-
-    const file = this.app.workspace.getActiveFile();
-    if (!file) return;
-
-    const entry = Object.values(this.syncState.docMap).find((e) => e.path === file.path);
-    if (!entry?.lockedBy) return;
-
-    const username = this.settings.username;
-    if (username && entry.lockedBy === username) return;
-
-    const frag = document.createDocumentFragment();
-    const container = frag.createEl("div", { cls: "sn-lock-notice" });
-    container.createEl("div", { text: "Locked on ServiceNow", cls: "sn-lock-notice-title" });
-    container.createEl("div", {
-      text: `"${file.basename}" is checked out by ${entry.lockedBy}. Your edits won't sync until the lock is released.`,
-      cls: "sn-lock-notice-body",
-    });
-
-    this.activeLockNotice = new Notice(frag, 0);
   }
 
   private checkActiveConflictState() {

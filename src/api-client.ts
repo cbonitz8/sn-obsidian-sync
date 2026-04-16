@@ -86,18 +86,6 @@ export class ApiClient {
     return this.request<void>("DELETE", `/documents/${encodeURIComponent(id)}`);
   }
 
-  async checkout(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/checkout`);
-  }
-
-  async checkin(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/checkin`);
-  }
-
-  async forceCheckin(id: string): Promise<ApiResponse<SNDocument>> {
-    return this.request<SNDocument>("POST", `/documents/${encodeURIComponent(id)}/force-checkin`);
-  }
-
   async getMetadata(): Promise<ApiResponse<SNMetadata>> {
     return this.request<SNMetadata>("GET", this.metadataPath);
   }

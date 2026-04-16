@@ -29,7 +29,6 @@ export const DEFAULT_SETTINGS: SNSyncSettings = {
   syncMode: "interval",
   syncIntervalSeconds: 30,
   frontmatterPrefix: "sn_",
-  checkoutOnEdit: true,
   localDeleteBehavior: "ignore",
   remoteDeleteBehavior: "delete local",
   folderMapping: DEFAULT_FOLDER_MAPPING,
@@ -78,9 +77,6 @@ export class SNSyncSettingTab extends PluginSettingTab {
       ["PUT", "/documents/{id}", "Update document"],
       ["DELETE", "/documents/{id}", "Delete document"],
       ["GET", "/documents/changes?since={ts}", "Get changes since timestamp"],
-      ["POST", "/documents/{id}/checkout", "Lock document"],
-      ["POST", "/documents/{id}/checkin", "Unlock document"],
-      ["POST", "/documents/{id}/force-checkin", "Force unlock"],
       ["GET", "{metadataPath}", "Get categories, projects, tags"],
     ];
     const thead = routeTable.createEl("thead");
@@ -335,18 +331,6 @@ export class SNSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl).setName("Behavior").setHeading();
-
-    new Setting(containerEl)
-      .setName("Checkout on edit")
-      .setDesc("Automatically lock documents in ServiceNow when editing locally")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.checkoutOnEdit)
-          .onChange(async (value) => {
-            this.plugin.settings.checkoutOnEdit = value;
-            await this.plugin.saveSettings();
-          })
-      );
 
     new Setting(containerEl)
       .setName("Local delete behavior")

@@ -131,8 +131,6 @@ export class SNBrowserView extends ItemView {
         path: file.path,
         lastServerTimestamp: "",
         contentHash: "",
-        lockedBy: "",
-        lockedAt: "",
       };
       trackedIds.add(sysId);
       added++;
@@ -144,37 +142,6 @@ export class SNBrowserView extends ItemView {
     }
   }
 
-  private renderLockBanner(container: HTMLElement) {
-    const username = this.plugin.settings.username;
-    const lockedByOthers: { name: string; lockedBy: string }[] = [];
-
-    for (const doc of this.serverDocs) {
-      if (!doc.checked_out_by) continue;
-      if (username && doc.checked_out_by === username) continue;
-      const entry = this.plugin.syncState.docMap[doc.sys_id];
-      if (!entry) continue;
-      lockedByOthers.push({ name: doc.title, lockedBy: doc.checked_out_by });
-    }
-
-    if (lockedByOthers.length === 0) return;
-
-    const byUser = new Map<string, string[]>();
-    for (const item of lockedByOthers) {
-      if (!byUser.has(item.lockedBy)) byUser.set(item.lockedBy, []);
-      byUser.get(item.lockedBy)!.push(item.name);
-    }
-
-    const banner = container.createDiv({ cls: "sn-lock-banner" });
-    banner.createEl("span", { text: "🔒", cls: "sn-lock-banner-icon" });
-    const body = banner.createDiv({ cls: "sn-lock-banner-body" });
-
-    for (const [user, files] of byUser) {
-      const line = body.createDiv({ cls: "sn-lock-banner-line" });
-      line.createEl("strong", { text: user });
-      line.appendText(` has ${files.length} file${files.length > 1 ? "s" : ""} checked out: `);
-      line.createEl("span", { text: files.join(", "), cls: "sn-lock-banner-files" });
-    }
-  }
 
   private createStatCard(container: HTMLElement, value: string, label: string, warning = false) {
     const card = container.createDiv({ cls: "sn-stat" });
@@ -218,8 +185,6 @@ export class SNBrowserView extends ItemView {
       container.createEl("p", { text: "No documents found. Check your connection settings." });
       return;
     }
-
-    this.renderLockBanner(container);
 
     const filterBar = container.createDiv({ cls: "sn-filter-bar" });
 
@@ -417,9 +382,6 @@ export class SNBrowserView extends ItemView {
         : remoteMtime.toLocaleString();
       meta.createEl("span", { text: `Remote modified: ${remoteTimeStr}` });
     }
-    if (conflict.lockedBy) {
-      meta.createEl("span", { text: ` · Locked by: ${conflict.lockedBy}` });
-    }
 
     const sc = conflict.sectionConflicts;
     const hasSections = sc && sc.length > 0;
@@ -599,9 +561,6 @@ export class SNBrowserView extends ItemView {
         ? conflict.remoteTimestamp
         : remoteMtime.toLocaleDateString();
       meta.createEl("span", { text: `Remote: ${remoteTimeStr}` });
-    }
-    if (conflict.lockedBy) {
-      meta.createEl("span", { text: `Locked by: ${conflict.lockedBy}` });
     }
 
     if (hasSections) {
@@ -890,9 +849,6 @@ export class SNBrowserView extends ItemView {
         row.createEl("span", { text: date, cls: "sn-doc-meta" });
       }
 
-      if (doc.checked_out_by) {
-        row.createEl("span", { text: "🔒", cls: "sn-doc-lock" });
-      }
 
       row.addEventListener("dblclick", () => {
         const entry = this.plugin.syncState.docMap[doc.sys_id];

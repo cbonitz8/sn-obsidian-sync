@@ -6,7 +6,7 @@ import type { FileWatcher } from "./file-watcher";
 import type { ConflictResolver } from "./conflict-resolver";
 import type { SNDocument, SNMetadata, SyncResult, ConflictResponseData } from "./types";
 import type { BaseCache } from "./base-cache";
-import { resolveFilePath, sanitizePathSegment } from "./folder-mapper";
+import { resolveFilePath, sanitizePathSegment, isTopLevelCategory } from "./folder-mapper";
 import { promptNewDocMetadata } from "./new-doc-modal";
 import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections } from "./section-parser";
@@ -22,8 +22,6 @@ export class SyncEngine {
   private intervalId: number | null = null;
   private isSyncing = false;
   private cachedMetadata: SNMetadata | null = null;
-  private warnedLockedIds = new Set<string>();
-
   constructor(
     plugin: SNSyncPlugin,
     apiClient: ApiClient,
@@ -79,7 +77,6 @@ export class SyncEngine {
     try {
       await this.fileWatcher.flushPending();
       const pullTs = await this.pull(result);
-      this.warnLockedDirtyFiles();
       const pushTs = await this.push(result);
       const serverTs = [pullTs, pushTs].filter(Boolean).sort().pop();
       if (serverTs) {
@@ -280,8 +277,6 @@ export class SyncEngine {
             path: file.path,
             lastServerTimestamp: newDoc.sys_updated_on,
             contentHash: newDoc.content_hash ?? "",
-            lockedBy: "",
-            lockedAt: "",
           };
 
           await this.baseCache.saveBase(newDoc.sys_id, stripFrontmatter(content));
@@ -423,17 +418,10 @@ export class SyncEngine {
     return latestTs;
   }
 
-  private updateLockState(entry: { lockedBy: string; lockedAt: string }, doc: SNDocument) {
-    entry.lockedBy = doc.checked_out_by || "";
-    // SN API doesn't expose checked_out_on; sys_updated_on is the best available proxy
-    entry.lockedAt = doc.checked_out_by ? doc.sys_updated_on : "";
-  }
-
   private async handlePulledDoc(doc: SNDocument, result: SyncResult) {
     const mapEntry = this.plugin.syncState.docMap[doc.sys_id];
 
     if (mapEntry) {
-      this.updateLockState(mapEntry, doc);
 
       const file = this.plugin.app.vault.getAbstractFileByPath(mapEntry.path);
       if (!(file instanceof TFile)) {
@@ -479,7 +467,6 @@ export class SyncEngine {
               path: mapEntry.path,
               remoteContent: doc.content,
               remoteTimestamp: doc.sys_updated_on,
-              lockedBy: doc.checked_out_by || "",
               sectionConflicts: mergeResult.conflicts,
             });
             result.conflicts++;
@@ -528,37 +515,6 @@ export class SyncEngine {
     return latestTs;
   }
 
-  private isLockedByOther(sysId: string): string | null {
-    const entry = this.plugin.syncState.docMap[sysId];
-    if (!entry?.lockedBy) return null;
-    const username = this.plugin.settings.username;
-    if (username && entry.lockedBy === username) return null;
-    return entry.lockedBy;
-  }
-
-  private warnLockedDirtyFiles() {
-    this.warnedLockedIds.clear();
-    const username = this.plugin.settings.username;
-    let warned = 0;
-
-    for (const entry of Object.values(this.plugin.syncState.docMap)) {
-      if (warned >= 3) break;
-      if (!entry.lockedBy) continue;
-      if (username && entry.lockedBy === username) continue;
-
-      const file = this.plugin.app.vault.getAbstractFileByPath(entry.path);
-      if (!(file instanceof TFile)) continue;
-
-      const fm = this.frontmatterManager.read(file);
-      if (fm.synced !== false) continue;
-
-      this.warnedLockedIds.add(entry.sysId);
-      const fileName = entry.path.split("/").pop() ?? entry.path;
-      new Notice(`${fileName} was locked by ${entry.lockedBy}. Your local changes can't sync until the lock is released.`);
-      warned++;
-    }
-  }
-
   private async handlePushFile(file: TFile, result: SyncResult): Promise<string | null> {
     const fm = this.frontmatterManager.read(file);
     const content = await this.getContentForPush(file);
@@ -567,25 +523,6 @@ export class SyncEngine {
     if (this.conflictResolver.getConflictForPath(file.path)) return null;
 
     if (fm.sys_id) {
-      const lockedByOther = this.isLockedByOther(fm.sys_id);
-      if (lockedByOther) {
-        if (!this.warnedLockedIds.has(fm.sys_id)) {
-          new Notice(`Cannot push "${file.basename}": locked by ${lockedByOther}`);
-        }
-        return null;
-      }
-
-      const checkoutResult = await this.apiClient.checkout(fm.sys_id);
-      if (!checkoutResult.ok) {
-        if (checkoutResult.status === 423) {
-          const lockedBy = checkoutResult.data?.checked_out_by ?? "another user";
-          new Notice(`Cannot push "${file.basename}": checked out by ${lockedBy}`);
-        } else {
-          result.errors.push(`Checkout failed for ${file.basename}: HTTP ${checkoutResult.status}`);
-        }
-        return null;
-      }
-
       const mapEntry = this.plugin.syncState.docMap[fm.sys_id];
       const expectedHash = mapEntry?.contentHash;
       const updateResult = await this.apiClient.updateDocument(fm.sys_id, {
@@ -597,7 +534,6 @@ export class SyncEngine {
       if (!updateResult.ok) {
         if (updateResult.status === 409) {
           const conflictData = updateResult.data as ConflictResponseData | null;
-          await this.apiClient.checkin(fm.sys_id);
 
           if (conflictData?.content) {
             const remoteBody = stripFrontmatter(conflictData.content);
@@ -641,7 +577,6 @@ export class SyncEngine {
                   path: file.path,
                   remoteContent: conflictData.content,
                   remoteTimestamp: conflictData.sys_updated_on,
-                  lockedBy: "",
                   sectionConflicts: mergeResult.conflicts,
                   ancestorContent: conflictData.ancestor_content ?? undefined,
                 });
@@ -664,35 +599,27 @@ export class SyncEngine {
                   path: file.path,
                   remoteContent: latest.data.content,
                   remoteTimestamp: latest.data.sys_updated_on,
-                  lockedBy: latest.data.checked_out_by || "",
                 });
                 result.conflicts++;
               }
             }
           }
         } else {
-          await this.apiClient.checkin(fm.sys_id);
           result.errors.push(`Update failed for ${file.basename}: HTTP ${updateResult.status}`);
         }
         return null;
       }
-
-      await this.apiClient.checkin(fm.sys_id);
 
       this.fileWatcher.addSyncWritePath(file.path);
       await this.frontmatterManager.markSynced(file);
       this.fileWatcher.removeSyncWritePath(file.path);
 
       const entry = this.plugin.syncState.docMap[fm.sys_id];
-      if (entry) {
-        if (updateResult.data) {
-          entry.lastServerTimestamp = updateResult.data.sys_updated_on;
-          if (updateResult.data.content_hash) {
-            entry.contentHash = updateResult.data.content_hash;
-          }
+      if (entry && updateResult.data) {
+        entry.lastServerTimestamp = updateResult.data.sys_updated_on;
+        if (updateResult.data.content_hash) {
+          entry.contentHash = updateResult.data.content_hash;
         }
-        entry.lockedBy = "";
-        entry.lockedAt = "";
       }
 
       await this.baseCache.saveBase(fm.sys_id, stripFrontmatter(content));
@@ -755,8 +682,6 @@ export class SyncEngine {
         path: file.path,
         lastServerTimestamp: newDoc.sys_updated_on,
         contentHash: newDoc.content_hash ?? "",
-        lockedBy: "",
-        lockedAt: "",
       };
 
       await this.baseCache.saveBase(newDoc.sys_id, stripFrontmatter(content));
@@ -796,13 +721,25 @@ export class SyncEngine {
       if (file) return;
     }
 
+    const category = doc.category ?? "";
+    if (!category) {
+      console.warn(`Snobby: skipping "${doc.title ?? doc.sys_id}" — no category assigned`);
+      return;
+    }
+
     const { folderMapping } = this.plugin.settings;
 
     await this.ensureMetadata();
-    const projectLabel = sanitizePathSegment(this.resolveLabel("projects", doc.project ?? ""));
+    const rawProject = this.resolveLabel("projects", doc.project ?? "");
+    let projectLabel = rawProject ? sanitizePathSegment(rawProject) : "";
+
+    // Project-scoped categories with no project go to Uncategorized/
+    if (!projectLabel && !isTopLevelCategory(folderMapping, category)) {
+      projectLabel = "Uncategorized";
+    }
 
     const filePath = normalizePath(
-      resolveFilePath(folderMapping, doc.title ?? "Untitled", projectLabel, doc.category ?? "", "")
+      resolveFilePath(folderMapping, doc.title ?? "Untitled", projectLabel, category, "")
     );
 
     const finalPath = this.resolveCollision(filePath, doc.sys_id);
@@ -832,8 +769,6 @@ export class SyncEngine {
       path: finalPath,
       lastServerTimestamp: doc.sys_updated_on,
       contentHash: doc.content_hash ?? "",
-      lockedBy: doc.checked_out_by || "",
-      lockedAt: doc.checked_out_by ? doc.sys_updated_on : "",
     };
 
     await this.baseCache.saveBase(doc.sys_id, stripFrontmatter(doc.content));

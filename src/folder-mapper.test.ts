@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveFilePath, sanitizeTitle } from "./folder-mapper";
+import { resolveFilePath, sanitizeTitle, isTopLevelCategory } from "./folder-mapper";
 import type { FolderMapping } from "./types";
 
 const MAPPING: FolderMapping = {
@@ -84,5 +84,23 @@ describe("sanitizeTitle", () => {
 
   it("handles empty string", () => {
     expect(sanitizeTitle("")).toBe("Untitled");
+  });
+});
+
+describe("isTopLevelCategory", () => {
+  it("returns true for topLevel categories", () => {
+    expect(isTopLevelCategory(MAPPING, "daily_log")).toBe(true);
+    expect(isTopLevelCategory(MAPPING, "standup")).toBe(true);
+    expect(isTopLevelCategory(MAPPING, "reference")).toBe(true);
+  });
+
+  it("returns false for project-scoped categories", () => {
+    expect(isTopLevelCategory(MAPPING, "session_log")).toBe(false);
+    expect(isTopLevelCategory(MAPPING, "design_spec")).toBe(false);
+    expect(isTopLevelCategory(MAPPING, "project_overview")).toBe(false);
+  });
+
+  it("returns false for unknown categories", () => {
+    expect(isTopLevelCategory(MAPPING, "nonexistent")).toBe(false);
   });
 });

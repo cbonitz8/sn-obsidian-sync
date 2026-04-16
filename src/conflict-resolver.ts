@@ -105,12 +105,6 @@ export class ConflictResolver {
     });
     this.plugin.fileWatcher.removeSyncWritePath(conflict.path);
 
-    try {
-      await this.plugin.apiClient.checkin(sysId);
-    } catch {
-      // best-effort — lock may not have been held
-    }
-
     const entry = this.plugin.syncState.docMap[sysId];
     if (entry) {
       entry.lastServerTimestamp = conflict.remoteTimestamp;
@@ -128,14 +122,6 @@ export class ConflictResolver {
   async resolveWithPush(sysId: string) {
     const conflict = this.plugin.syncState.conflicts[sysId];
     if (!conflict) return;
-
-    if (conflict.lockedBy) {
-      const username = this.plugin.settings.username;
-      if (!username || conflict.lockedBy !== username) {
-        new Notice(`Cannot push — file is locked by ${conflict.lockedBy}. Pull remote or coordinate with them.`);
-        return;
-      }
-    }
 
     const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
     if (file instanceof TFile) {

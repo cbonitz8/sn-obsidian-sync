@@ -81,28 +81,6 @@ export class FileWatcher {
     if (fm.synced === false) return;
 
     await this.frontmatterManager.markDirty(file);
-
-    if (this.plugin.settings.checkoutOnEdit && fm.sys_id) {
-      const entry = this.plugin.syncState.docMap[fm.sys_id];
-      const username = this.plugin.settings.username;
-      if (entry?.lockedBy && (!username || entry.lockedBy !== username)) {
-        const frag = document.createDocumentFragment();
-        const container = frag.createEl("div", { cls: "sn-lock-notice" });
-        container.createEl("div", { text: "Locked on ServiceNow", cls: "sn-lock-notice-title" });
-        container.createEl("div", {
-          text: `"${file.basename}" is checked out by ${entry.lockedBy}. Your edits won't sync until the lock is released.`,
-          cls: "sn-lock-notice-body",
-        });
-        new Notice(frag, 0);
-        return;
-      }
-
-      try {
-        await this.apiClient.checkout(fm.sys_id);
-      } catch (e) {
-        console.error("Snobby: Auto-checkout failed", e);
-      }
-    }
   }
 
   private async onDelete(file: TFile) {

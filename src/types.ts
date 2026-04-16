@@ -6,7 +6,6 @@ export interface SNDocument {
   project: string;
   tags: string;
   sys_updated_on: string;
-  checked_out_by: string;
   content_hash: string;
 }
 
@@ -20,8 +19,6 @@ export interface DocMapEntry {
   sysId: string;
   path: string;
   lastServerTimestamp: string;
-  lockedBy: string;
-  lockedAt: string;
   contentHash: string;
 }
 
@@ -30,7 +27,6 @@ export interface ConflictEntry {
   path: string;
   remoteContent: string;
   remoteTimestamp: string;
-  lockedBy: string;
   sectionConflicts?: SectionConflict[];
   ancestorContent?: string;
 }
@@ -94,7 +90,6 @@ export interface SNSyncSettings {
   syncMode: SyncMode;
   syncIntervalSeconds: number;
   frontmatterPrefix: string;
-  checkoutOnEdit: boolean;
   localDeleteBehavior: LocalDeleteBehavior;
   remoteDeleteBehavior: RemoteDeleteBehavior;
   folderMapping: FolderMapping;
