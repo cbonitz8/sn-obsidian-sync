@@ -78,10 +78,13 @@ export class SyncEngine {
 
     try {
       await this.fileWatcher.flushPending();
-      await this.pull(result);
+      const pullTs = await this.pull(result);
       this.warnLockedDirtyFiles();
-      await this.push(result);
-      this.plugin.syncState.lastSyncTimestamp = new Date().toISOString();
+      const pushTs = await this.push(result);
+      const serverTs = [pullTs, pushTs].filter(Boolean).sort().pop();
+      if (serverTs) {
+        this.plugin.syncState.lastSyncTimestamp = serverTs;
+      }
       await this.plugin.saveSettings();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -141,7 +144,12 @@ export class SyncEngine {
       }
 
       const docs = Array.isArray(response.data) ? response.data : [response.data];
+      let latestTs: string | null = null;
+
       for (const doc of docs) {
+        if (!latestTs || doc.sys_updated_on > latestTs) {
+          latestTs = doc.sys_updated_on;
+        }
         try {
           await this.createLocalFile(doc);
           result.pulled++;
@@ -151,7 +159,9 @@ export class SyncEngine {
         }
       }
 
-      this.plugin.syncState.lastSyncTimestamp = new Date().toISOString();
+      if (latestTs) {
+        this.plugin.syncState.lastSyncTimestamp = latestTs;
+      }
       await this.plugin.saveSettings();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -231,6 +241,7 @@ export class SyncEngine {
 
       const total = candidates.length;
       new Notice(`Bulk push: ${total} documents to upload`);
+      let latestTs: string | null = null;
 
       for (let i = 0; i < candidates.length; i++) {
         const file = candidates[i]!;
@@ -253,6 +264,9 @@ export class SyncEngine {
           }
 
           const newDoc = createResult.data;
+          if (!latestTs || newDoc.sys_updated_on > latestTs) {
+            latestTs = newDoc.sys_updated_on;
+          }
 
           this.fileWatcher.addSyncWritePath(file.path);
           await this.frontmatterManager.write(file, {
@@ -281,7 +295,9 @@ export class SyncEngine {
         }
       }
 
-      this.plugin.syncState.lastSyncTimestamp = new Date().toISOString();
+      if (latestTs) {
+        this.plugin.syncState.lastSyncTimestamp = latestTs;
+      }
       await this.plugin.saveSettings();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -318,6 +334,7 @@ export class SyncEngine {
 
       const total = candidates.length;
       new Notice(`Bulk update: ${total} documents to re-sync`);
+      let latestTs: string | null = null;
 
       for (let i = 0; i < candidates.length; i++) {
         const file = candidates[i]!;
@@ -335,6 +352,11 @@ export class SyncEngine {
             continue;
           }
 
+          if (updateResult.data?.sys_updated_on) {
+            const ts = updateResult.data.sys_updated_on;
+            if (!latestTs || ts > latestTs) latestTs = ts;
+          }
+
           this.fileWatcher.addSyncWritePath(file.path);
           await this.frontmatterManager.markSynced(file);
           this.fileWatcher.removeSyncWritePath(file.path);
@@ -350,7 +372,9 @@ export class SyncEngine {
         }
       }
 
-      this.plugin.syncState.lastSyncTimestamp = new Date().toISOString();
+      if (latestTs) {
+        this.plugin.syncState.lastSyncTimestamp = latestTs;
+      }
       await this.plugin.saveSettings();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -367,19 +391,25 @@ export class SyncEngine {
     return result;
   }
 
-  private async pull(result: SyncResult) {
+  private async pull(result: SyncResult): Promise<string | null> {
     const since = this.plugin.syncState.lastSyncTimestamp;
-    if (!since) return;
+    if (!since) return null;
 
     const response = await this.apiClient.getChanges(since);
     if (!response.ok || !response.data) {
       if (response.status !== 0) result.errors.push(`Pull failed: HTTP ${response.status}`);
-      return;
+      return null;
     }
 
     const docs = Array.isArray(response.data) ? response.data : [response.data];
+    let latestTs: string | null = null;
+
     for (const doc of docs) {
         if (this.plugin.syncState.ignoredIds.includes(doc.sys_id)) continue;
+
+      if (!latestTs || doc.sys_updated_on > latestTs) {
+        latestTs = doc.sys_updated_on;
+      }
 
       try {
         await this.handlePulledDoc(doc, result);
@@ -389,6 +419,8 @@ export class SyncEngine {
         result.errors.push(`Pull error for ${doc.title}: ${msg}`);
       }
     }
+
+    return latestTs;
   }
 
   private updateLockState(entry: { lockedBy: string; lockedAt: string }, doc: SNDocument) {
@@ -476,18 +508,24 @@ export class SyncEngine {
     }
   }
 
-  private async push(result: SyncResult) {
+  private async push(result: SyncResult): Promise<string | null> {
     const dirtyFiles = this.fileWatcher.getDirtyFiles();
+    let latestTs: string | null = null;
 
     for (const file of dirtyFiles) {
       try {
-        await this.handlePushFile(file, result);
+        const pushTs = await this.handlePushFile(file, result);
+        if (pushTs && (!latestTs || pushTs > latestTs)) {
+          latestTs = pushTs;
+        }
         this.plugin.updateSyncProgress(result.pulled, result.pushed);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         result.errors.push(`Push error for ${file.name}: ${msg}`);
       }
     }
+
+    return latestTs;
   }
 
   private isLockedByOther(sysId: string): string | null {
@@ -521,12 +559,12 @@ export class SyncEngine {
     }
   }
 
-  private async handlePushFile(file: TFile, result: SyncResult) {
+  private async handlePushFile(file: TFile, result: SyncResult): Promise<string | null> {
     const fm = this.frontmatterManager.read(file);
     const content = await this.getContentForPush(file);
 
-    if (fm.sys_id && this.plugin.syncState.conflicts[fm.sys_id]) return;
-    if (this.conflictResolver.getConflictForPath(file.path)) return;
+    if (fm.sys_id && this.plugin.syncState.conflicts[fm.sys_id]) return null;
+    if (this.conflictResolver.getConflictForPath(file.path)) return null;
 
     if (fm.sys_id) {
       const lockedByOther = this.isLockedByOther(fm.sys_id);
@@ -534,7 +572,7 @@ export class SyncEngine {
         if (!this.warnedLockedIds.has(fm.sys_id)) {
           new Notice(`Cannot push "${file.basename}": locked by ${lockedByOther}`);
         }
-        return;
+        return null;
       }
 
       const checkoutResult = await this.apiClient.checkout(fm.sys_id);
@@ -545,7 +583,7 @@ export class SyncEngine {
         } else {
           result.errors.push(`Checkout failed for ${file.basename}: HTTP ${checkoutResult.status}`);
         }
-        return;
+        return null;
       }
 
       const mapEntry = this.plugin.syncState.docMap[fm.sys_id];
@@ -636,7 +674,7 @@ export class SyncEngine {
           await this.apiClient.checkin(fm.sys_id);
           result.errors.push(`Update failed for ${file.basename}: HTTP ${updateResult.status}`);
         }
-        return;
+        return null;
       }
 
       await this.apiClient.checkin(fm.sys_id);
@@ -659,6 +697,7 @@ export class SyncEngine {
 
       await this.baseCache.saveBase(fm.sys_id, stripFrontmatter(content));
       result.pushed++;
+      return updateResult.data?.sys_updated_on ?? null;
     } else {
       let category = fm.category ?? "";
       let project = fm.project ?? "";
@@ -679,7 +718,7 @@ export class SyncEngine {
           tags,
         });
 
-        if (!userInput) return;
+        if (!userInput) return null;
         category = userInput.category;
         project = userInput.project;
         tags = userInput.tags;
@@ -696,7 +735,7 @@ export class SyncEngine {
 
       if (!createResult.ok || !createResult.data) {
         result.errors.push(`Create failed for ${file.basename}: HTTP ${createResult.status}`);
-        return;
+        return null;
       }
 
       const newDoc = createResult.data;
@@ -722,6 +761,7 @@ export class SyncEngine {
 
       await this.baseCache.saveBase(newDoc.sys_id, stripFrontmatter(content));
       result.pushed++;
+      return newDoc.sys_updated_on;
     }
   }
 
