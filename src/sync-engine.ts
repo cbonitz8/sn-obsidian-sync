@@ -726,7 +726,7 @@ export class SyncEngine {
   }
 
   private resolveLabel(type: "projects" | "categories", value: string): string {
-    if (!this.cachedMetadata || !value) return value;
+    if (!this.cachedMetadata || !value) return value ?? "";
     const entry = this.cachedMetadata[type].find((e) => e.value === value);
     return entry?.label ?? value;
   }
@@ -759,11 +759,10 @@ export class SyncEngine {
     const { folderMapping } = this.plugin.settings;
 
     await this.ensureMetadata();
-    const projectLabel = sanitizePathSegment(this.resolveLabel("projects", doc.project));
-    const categoryLabel = this.resolveLabel("categories", doc.category);
+    const projectLabel = sanitizePathSegment(this.resolveLabel("projects", doc.project ?? ""));
 
     const filePath = normalizePath(
-      resolveFilePath(folderMapping, doc.title, projectLabel, categoryLabel, "")
+      resolveFilePath(folderMapping, doc.title ?? "Untitled", projectLabel, doc.category ?? "", "")
     );
 
     const finalPath = this.resolveCollision(filePath, doc.sys_id);
