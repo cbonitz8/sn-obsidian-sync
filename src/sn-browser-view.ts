@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice, Menu, TFile, Modal, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata, ConflictEntry } from "./types";
-import { computeSideBySide, extractSideBySideHunks } from "./diff";
+import { computeSideBySide, computeDiff, extractSideBySideHunks } from "./diff";
 import { stripFrontmatter } from "./frontmatter-manager";
 
 export const VIEW_TYPE_SN_BROWSER = "sn-document-browser";
@@ -22,6 +22,7 @@ export class SNBrowserView extends ItemView {
   private viewMode: "triage" | "drill-in" = "triage";
   private drillInSysId: string | null = null;
   private perSectionChoices: Map<string, Map<string, "local" | "remote">> = new Map();
+  private hunkChoices: Map<string, Map<string, Map<number, "local" | "remote">>> = new Map();
 
   constructor(leaf: WorkspaceLeaf, plugin: SNSyncPlugin) {
     super(leaf);
@@ -386,67 +387,60 @@ export class SNBrowserView extends ItemView {
     const sc = conflict.sectionConflicts;
     const hasSections = sc && sc.length > 0;
 
-    if (!this.perSectionChoices.has(conflict.sysId)) {
-      this.perSectionChoices.set(conflict.sysId, new Map());
-    }
-    const choices = this.perSectionChoices.get(conflict.sysId)!;
-
     if (hasSections) {
-      // Render each conflicting section as a side-by-side diff
+      // Render each conflicting section with interactive hunk-level diff
       for (const s of sc) {
         const sectionBlock = drillIn.createDiv({ cls: "sn-drill-in-section" });
 
         const sectionHeader = sectionBlock.createDiv({ cls: "sn-drill-in-section-header" });
-        const name = s.heading.replace(/^###\s*/, "");
+        const rawName = s.heading.replace(/^###\s*/, "");
+        const name = rawName || "Document body";
         sectionHeader.createEl("span", { text: name });
 
+        // Section-level shortcut buttons (set all hunks in section)
         const sectionBtns = sectionHeader.createDiv({ cls: "sn-drill-in-section-btns" });
-        const currentChoice = choices.get(s.key);
+        const sectionChoices = this.getOrCreateHunkChoices(conflict.sysId, s.key);
+        const allLocal = [...sectionChoices.values()].every((c) => c === "local");
+        const allRemote = [...sectionChoices.values()].every((c) => c === "remote");
 
         const remoteBtn = sectionBtns.createEl("button", {
-          text: "Accept remote",
-          cls: `sn-conflict-quick-btn ${currentChoice === "remote" ? "is-chosen" : ""}`,
+          text: "All remote",
+          cls: `sn-conflict-quick-btn ${allRemote && sectionChoices.size > 0 ? "is-chosen" : ""}`,
         });
         remoteBtn.addEventListener("click", () => {
-          choices.set(s.key, "remote");
+          for (const [idx] of sectionChoices) sectionChoices.set(idx, "remote");
           void this.render();
         });
 
         const localBtn = sectionBtns.createEl("button", {
-          text: "Keep local",
-          cls: `sn-conflict-quick-btn ${currentChoice === "local" ? "is-chosen" : ""}`,
+          text: "All local",
+          cls: `sn-conflict-quick-btn ${allLocal && sectionChoices.size > 0 ? "is-chosen" : ""}`,
         });
         localBtn.addEventListener("click", () => {
-          choices.set(s.key, "local");
+          for (const [idx] of sectionChoices) sectionChoices.set(idx, "local");
           void this.render();
         });
 
-        // Side-by-side diff
-        this.renderSideBySide(sectionBlock, s.localBody, s.remoteBody);
+        // Interactive side-by-side diff with clickable change groups
+        this.renderInteractiveDiff(sectionBlock, conflict.sysId, s.key, s.localBody, s.remoteBody);
       }
 
-      // Apply button
+      // Apply merge button (always available — defaults set automatically)
       const actions = drillIn.createDiv({ cls: "sn-drill-in-actions" });
-      if (choices.size === sc.length) {
-        const applyBtn = actions.createEl("button", {
-          text: "Apply all choices",
-          cls: "sn-action-btn mod-cta",
-        });
-        applyBtn.addEventListener("click", () => {
-          void (async () => {
-            await this.plugin.conflictResolver.resolvePerSection(conflict.sysId, choices);
-            this.perSectionChoices.delete(conflict.sysId);
-            this.viewMode = "triage";
-            this.drillInSysId = null;
-            await this.render();
-          })();
-        });
-      } else {
-        actions.createEl("p", {
-          text: `Choose resolution for all ${sc.length} sections to apply.`,
-          cls: "sn-drill-in-meta",
-        });
-      }
+      const applyBtn = actions.createEl("button", {
+        text: "Apply merge",
+        cls: "sn-action-btn mod-cta",
+      });
+      applyBtn.addEventListener("click", () => {
+        void (async () => {
+          const allChoices = this.hunkChoices.get(conflict.sysId) ?? new Map();
+          await this.plugin.conflictResolver.resolveWithHunkChoices(conflict.sysId, allChoices);
+          this.hunkChoices.delete(conflict.sysId);
+          this.viewMode = "triage";
+          this.drillInSysId = null;
+          await this.render();
+        })();
+      });
     } else {
       // Whole-file fallback: single side-by-side diff
       const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
@@ -491,6 +485,10 @@ export class SNBrowserView extends ItemView {
 
     const hunks = extractSideBySideHunks(allLines);
 
+    // Legend
+    const legend = container.createDiv({ cls: "sn-diff-legend" });
+    legend.createEl("span", { text: "Unique to this side", cls: "sn-diff-legend-item sn-diff-legend-included" });
+
     const grid = container.createDiv({ cls: "sn-side-by-side" });
 
     // Column headers
@@ -503,15 +501,147 @@ export class SNBrowserView extends ItemView {
         grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-separator", text: "\u22EF" });
       }
       for (const line of hunks[h]!.lines) {
-        const leftCls = line.left
-          ? `sn-side-by-side-cell sn-diff-${line.left.type}`
-          : "sn-side-by-side-cell sn-diff-empty";
-        const rightCls = line.right
-          ? `sn-side-by-side-cell sn-diff-${line.right.type}`
-          : "sn-side-by-side-cell sn-diff-empty";
+        const leftType = line.left?.type === "context" ? "context" : (line.left ? "included" : "empty");
+        const rightType = line.right?.type === "context" ? "context" : (line.right ? "included" : "empty");
 
-        grid.createDiv({ cls: leftCls, text: line.left?.text ?? "" });
-        grid.createDiv({ cls: rightCls, text: line.right?.text ?? "" });
+        grid.createDiv({ cls: `sn-side-by-side-cell sn-diff-${leftType}`, text: line.left?.text ?? "" });
+        grid.createDiv({ cls: `sn-side-by-side-cell sn-diff-${rightType}`, text: line.right?.text ?? "" });
+      }
+    }
+  }
+
+  private getOrCreateHunkChoices(sysId: string, sectionKey: string): Map<number, "local" | "remote"> {
+    if (!this.hunkChoices.has(sysId)) this.hunkChoices.set(sysId, new Map());
+    const sysMap = this.hunkChoices.get(sysId)!;
+    if (!sysMap.has(sectionKey)) sysMap.set(sectionKey, new Map());
+    return sysMap.get(sectionKey)!;
+  }
+
+  private renderInteractiveDiff(
+    container: HTMLElement,
+    sysId: string,
+    sectionKey: string,
+    localBody: string,
+    remoteBody: string,
+  ) {
+    const allLines = computeSideBySide(localBody, remoteBody);
+    if (allLines.length === 0) {
+      container.createEl("p", { text: "Contents are identical.", cls: "sn-conflict-empty" });
+      return;
+    }
+
+    // Identify change groups (contiguous non-context rows)
+    interface CG { index: number; startRow: number; endRow: number; hasLocal: boolean; hasRemote: boolean }
+    const changeGroups: CG[] = [];
+    let ri = 0;
+    let cgIdx = 0;
+    while (ri < allLines.length) {
+      const line = allLines[ri]!;
+      const isCtx = line.left?.type === "context" && line.right?.type === "context";
+      if (isCtx) { ri++; continue; }
+
+      const start = ri;
+      let hasLocal = false;
+      let hasRemote = false;
+      while (ri < allLines.length) {
+        const l = allLines[ri]!;
+        if (l.left?.type === "context" && l.right?.type === "context") break;
+        if (l.left && l.left.type !== "context") hasLocal = true;
+        if (l.right && l.right.type !== "context") hasRemote = true;
+        ri++;
+      }
+      changeGroups.push({ index: cgIdx++, startRow: start, endRow: ri - 1, hasLocal, hasRemote });
+    }
+
+    // Initialize default choices
+    const sectionChoices = this.getOrCreateHunkChoices(sysId, sectionKey);
+    for (const cg of changeGroups) {
+      if (!sectionChoices.has(cg.index)) {
+        if (cg.hasLocal && !cg.hasRemote) sectionChoices.set(cg.index, "local");
+        else if (!cg.hasLocal && cg.hasRemote) sectionChoices.set(cg.index, "remote");
+        else sectionChoices.set(cg.index, "local");
+      }
+    }
+
+    // Build row → change group lookup
+    const rowToCg = new Map<number, CG>();
+    for (const cg of changeGroups) {
+      for (let r = cg.startRow; r <= cg.endRow; r++) rowToCg.set(r, cg);
+    }
+
+    // Compute visible ranges (change groups + 3 lines context, merged when overlapping)
+    const CTX = 3;
+    const ranges: { start: number; end: number }[] = [];
+    for (const cg of changeGroups) {
+      const s = Math.max(0, cg.startRow - CTX);
+      const e = Math.min(allLines.length - 1, cg.endRow + CTX);
+      if (ranges.length > 0 && s <= ranges[ranges.length - 1]!.end + 1) {
+        ranges[ranges.length - 1]!.end = e;
+      } else {
+        ranges.push({ start: s, end: e });
+      }
+    }
+
+    // Legend
+    const legend = container.createDiv({ cls: "sn-diff-legend" });
+    legend.createEl("span", { text: "Included in merge", cls: "sn-diff-legend-item sn-diff-legend-included" });
+    legend.createEl("span", { text: "Excluded", cls: "sn-diff-legend-item sn-diff-legend-excluded" });
+    legend.createEl("span", { text: "Click a highlighted row to toggle", cls: "sn-diff-legend-hint" });
+
+    const grid = container.createDiv({ cls: "sn-side-by-side" });
+    grid.createDiv({ cls: "sn-side-by-side-header", text: "Local (Obsidian)" });
+    grid.createDiv({ cls: "sn-side-by-side-header", text: "Remote (ServiceNow)" });
+
+    for (let rIdx = 0; rIdx < ranges.length; rIdx++) {
+      if (rIdx > 0) {
+        grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-separator", text: "\u22EF" });
+        grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-separator", text: "\u22EF" });
+      }
+
+      const range = ranges[rIdx]!;
+      for (let row = range.start; row <= range.end; row++) {
+        const line = allLines[row]!;
+        const cg = rowToCg.get(row);
+
+        if (!cg) {
+          // Context row
+          grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-context", text: line.left?.text ?? "" });
+          grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-context", text: line.right?.text ?? "" });
+        } else {
+          const choice = sectionChoices.get(cg.index) ?? "local";
+
+          // Left cell: included if choice is "local" and cell has content, excluded otherwise
+          const leftHasChange = line.left != null && line.left.type !== "context";
+          const rightHasChange = line.right != null && line.right.type !== "context";
+
+          let leftCls: string;
+          if (!line.left) leftCls = "sn-diff-empty";
+          else if (!leftHasChange) leftCls = "sn-diff-context";
+          else leftCls = choice === "local" ? "sn-diff-included" : "sn-diff-excluded";
+
+          let rightCls: string;
+          if (!line.right) rightCls = "sn-diff-empty";
+          else if (!rightHasChange) rightCls = "sn-diff-context";
+          else rightCls = choice === "remote" ? "sn-diff-included" : "sn-diff-excluded";
+
+          const leftCell = grid.createDiv({
+            cls: `sn-side-by-side-cell ${leftCls} sn-hunk-clickable`,
+            text: line.left?.text ?? "",
+          });
+          const rightCell = grid.createDiv({
+            cls: `sn-side-by-side-cell ${rightCls} sn-hunk-clickable`,
+            text: line.right?.text ?? "",
+          });
+
+          leftCell.addEventListener("click", () => {
+            sectionChoices.set(cg.index, "local");
+            void this.render();
+          });
+          rightCell.addEventListener("click", () => {
+            sectionChoices.set(cg.index, "remote");
+            void this.render();
+          });
+        }
       }
     }
   }
@@ -533,6 +663,7 @@ export class SNBrowserView extends ItemView {
       void (async () => {
         await this.plugin.conflictResolver.clearAllConflicts();
         this.perSectionChoices.clear();
+        this.hunkChoices.clear();
         new Notice("All conflicts dismissed");
         await this.render();
       })();
@@ -564,7 +695,7 @@ export class SNBrowserView extends ItemView {
     }
 
     if (hasSections) {
-      const names = sc.map((s) => s.heading.replace(/^###\s*/, ""));
+      const names = sc.map((s) => s.heading.replace(/^###\s*/, "") || "Document body");
       const sectionNames = info.createDiv({ cls: "sn-conflict-section-names" });
       sectionNames.createEl("strong", { text: "Conflicts in: " });
       sectionNames.appendText(names.join(", "));
@@ -638,8 +769,8 @@ export class SNBrowserView extends ItemView {
 
       for (const s of sc) {
         const sectionRow = quickActions.createDiv({ cls: "sn-conflict-quick-section" });
-        const name = s.heading.replace(/^###\s*/, "");
-        sectionRow.createEl("span", { text: name, cls: "sn-conflict-quick-section-name" });
+        const quickName = s.heading.replace(/^###\s*/, "") || "Document body";
+        sectionRow.createEl("span", { text: quickName, cls: "sn-conflict-quick-section-name" });
 
         const btns = sectionRow.createDiv({ cls: "sn-conflict-quick-btns" });
         const currentChoice = choices.get(s.key);

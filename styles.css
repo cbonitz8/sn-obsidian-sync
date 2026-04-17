@@ -583,6 +583,19 @@
   background: rgba(100, 255, 100, 0.15);
 }
 
+.sn-diff-legend-included {
+  background: rgba(100, 180, 255, 0.2);
+}
+
+.sn-diff-legend-excluded {
+  background: rgba(255, 100, 100, 0.15);
+}
+
+.sn-diff-legend-hint {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 /* Diff rendering */
 .sn-diff-hunk {
   padding: 4px 0;
@@ -621,6 +634,14 @@
 
 .sn-diff-context {
   background: transparent;
+}
+
+.sn-diff-included {
+  background: rgba(100, 180, 255, 0.2);
+}
+
+.sn-diff-excluded {
+  background: rgba(255, 100, 100, 0.15);
 }
 
 /* Notice button */
@@ -798,8 +819,25 @@
   background: rgba(100, 255, 100, 0.15);
 }
 
+.sn-side-by-side-cell.sn-diff-included {
+  background: rgba(100, 180, 255, 0.2);
+}
+
+.sn-side-by-side-cell.sn-diff-excluded {
+  background: rgba(255, 100, 100, 0.15);
+}
+
 .sn-side-by-side-cell.sn-diff-empty {
   background: var(--background-secondary-alt);
+}
+
+.sn-hunk-clickable {
+  cursor: pointer;
+  transition: filter 0.1s;
+}
+
+.sn-hunk-clickable:hover {
+  filter: brightness(1.15);
 }
 
 .sn-side-by-side-cell.sn-diff-separator {

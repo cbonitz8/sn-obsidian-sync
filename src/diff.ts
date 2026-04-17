@@ -96,6 +96,83 @@ export function computeDiff(local: string, remote: string): DiffLine[] {
   return full;
 }
 
+export interface ChangeGroup {
+  index: number;
+  startLine: number;
+  endLine: number;
+  hasLocal: boolean;
+  hasRemote: boolean;
+}
+
+/**
+ * Extract contiguous non-context runs from a flat diff as change groups.
+ * Each group is sequentially indexed (0, 1, 2...) and tracks which sides
+ * have changes. These indices correspond 1:1 with side-by-side change groups
+ * from the same diff.
+ */
+export function extractChangeGroups(diffLines: DiffLine[]): ChangeGroup[] {
+  const groups: ChangeGroup[] = [];
+  let i = 0;
+  let groupIndex = 0;
+
+  while (i < diffLines.length) {
+    if (diffLines[i]!.type === "context") { i++; continue; }
+
+    const start = i;
+    let hasLocal = false;
+    let hasRemote = false;
+
+    while (i < diffLines.length && diffLines[i]!.type !== "context") {
+      if (diffLines[i]!.type === "removed") hasLocal = true;
+      if (diffLines[i]!.type === "added") hasRemote = true;
+      i++;
+    }
+
+    groups.push({ index: groupIndex++, startLine: start, endLine: i - 1, hasLocal, hasRemote });
+  }
+
+  return groups;
+}
+
+/**
+ * Assemble merged text from a diff and per-change-group choices.
+ * Context lines are always included. For each change group, "local" includes
+ * removed lines (local content), "remote" includes added lines (remote content).
+ */
+export function assembleDiffWithChoices(
+  diffLines: DiffLine[],
+  changeGroups: ChangeGroup[],
+  choices: Map<number, "local" | "remote">,
+): string {
+  const lineToGroup = new Map<number, number>();
+  for (const g of changeGroups) {
+    for (let j = g.startLine; j <= g.endLine; j++) {
+      lineToGroup.set(j, g.index);
+    }
+  }
+
+  const output: string[] = [];
+  for (let i = 0; i < diffLines.length; i++) {
+    const line = diffLines[i]!;
+    if (line.type === "context") {
+      output.push(line.text);
+      continue;
+    }
+
+    const groupIdx = lineToGroup.get(i);
+    if (groupIdx === undefined) continue;
+
+    const choice = choices.get(groupIdx) ?? "local";
+    if (choice === "local" && line.type === "removed") {
+      output.push(line.text);
+    } else if (choice === "remote" && line.type === "added") {
+      output.push(line.text);
+    }
+  }
+
+  return output.join("\n");
+}
+
 export interface Hunk {
   lines: DiffLine[];
 }

@@ -5,6 +5,8 @@ import type { BaseCache } from "./base-cache";
 import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections, serializeSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
+import { computeDiff, extractChangeGroups, assembleDiffWithChoices } from "./diff";
+import { contentHash } from "./content-hash";
 
 const MARKER_LOCAL = "<<<<<<< Local (Obsidian)";
 const MARKER_SEPARATOR = "=======";
@@ -69,6 +71,50 @@ export function assemblePerSectionMerge(
   return serializeSections(final);
 }
 
+/**
+ * Assemble a merged document body using per-change-group choices within sections.
+ * Non-conflicting sections are auto-resolved by mergeSections; conflicting
+ * sections are assembled from diff + hunk choices.
+ */
+export function assembleWithHunkChoices(
+  localBody: string,
+  remoteBody: string,
+  baseBody: string | null,
+  hunkChoices: Map<string, Map<number, "local" | "remote">>,
+): string {
+  const baseSections = baseBody ? parseSections(baseBody) : null;
+  const localSections = parseSections(localBody);
+  const remoteSections = parseSections(remoteBody);
+  const mergeResult = mergeSections(baseSections, localSections, remoteSections);
+
+  const mergedSections = parseSections(mergeResult.mergedBody);
+  const final = new Map(mergedSections);
+
+  for (const conflict of mergeResult.conflicts) {
+    const choices = hunkChoices.get(conflict.key);
+    if (!choices || choices.size === 0) {
+      const section = localSections.get(conflict.key);
+      if (section) final.set(conflict.key, section);
+      continue;
+    }
+
+    const diffLines = computeDiff(conflict.localBody, conflict.remoteBody);
+    const changeGroups = extractChangeGroups(diffLines);
+    const mergedBody = assembleDiffWithChoices(diffLines, changeGroups, choices);
+
+    const localSection = localSections.get(conflict.key);
+    const remoteSection = remoteSections.get(conflict.key);
+    final.set(conflict.key, {
+      heading: localSection?.heading ?? remoteSection?.heading ?? "",
+      key: conflict.key,
+      body: mergedBody,
+      hash: contentHash(mergedBody),
+    });
+  }
+
+  return serializeSections(final);
+}
+
 export class ConflictResolver {
   private plugin: SNSyncPlugin;
   private baseCache: BaseCache;
@@ -125,11 +171,10 @@ export class ConflictResolver {
 
     const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
     if (file instanceof TFile) {
-      const raw = await this.plugin.app.vault.read(file);
-      await this.baseCache.saveBase(sysId, stripFrontmatter(raw));
       await this.plugin.frontmatterManager.markDirty(file);
     }
 
+    this.plugin.syncEngine.addSkipPullId(sysId);
     delete this.plugin.syncState.conflicts[sysId];
     await this.plugin.saveSettings();
 
@@ -177,11 +222,62 @@ export class ConflictResolver {
 
     await this.baseCache.saveBase(sysId, mergedBody);
 
+    this.plugin.syncEngine.addSkipPullId(sysId);
     delete this.plugin.syncState.conflicts[sysId];
     await this.plugin.saveSettings();
 
     const fileName = conflict.path.split("/").pop() ?? conflict.path;
     new Notice(`"${fileName}" merged with per-section choices.`);
+  }
+
+  async resolveWithHunkChoices(
+    sysId: string,
+    hunkChoices: Map<string, Map<number, "local" | "remote">>,
+  ): Promise<void> {
+    const conflict = this.plugin.syncState.conflicts[sysId];
+    if (!conflict) return;
+
+    const file = this.plugin.app.vault.getAbstractFileByPath(conflict.path);
+    if (!(file instanceof TFile)) {
+      delete this.plugin.syncState.conflicts[sysId];
+      await this.plugin.saveSettings();
+      return;
+    }
+
+    const raw = await this.plugin.app.vault.read(file);
+    const localBody = stripFrontmatter(raw);
+    const remoteBody = stripFrontmatter(conflict.remoteContent);
+    const baseBody = conflict.ancestorContent
+      ? stripFrontmatter(conflict.ancestorContent)
+      : await this.baseCache.loadBase(sysId);
+
+    const mergedBody = assembleWithHunkChoices(localBody, remoteBody, baseBody, hunkChoices);
+
+    let newContent: string;
+    if (raw.startsWith("---")) {
+      const endIdx = raw.indexOf("\n---", 3);
+      if (endIdx !== -1) {
+        newContent = raw.substring(0, endIdx + 4) + "\n" + mergedBody;
+      } else {
+        newContent = mergedBody;
+      }
+    } else {
+      newContent = mergedBody;
+    }
+
+    this.plugin.fileWatcher.addSyncWritePath(conflict.path);
+    await this.plugin.app.vault.modify(file, newContent);
+    await this.plugin.frontmatterManager.markDirty(file);
+    this.plugin.fileWatcher.removeSyncWritePath(conflict.path);
+
+    await this.baseCache.saveBase(sysId, mergedBody);
+
+    this.plugin.syncEngine.addSkipPullId(sysId);
+    delete this.plugin.syncState.conflicts[sysId];
+    await this.plugin.saveSettings();
+
+    const fileName = conflict.path.split("/").pop() ?? conflict.path;
+    new Notice(`"${fileName}" merged with hunk-level choices.`);
   }
 
   getConflictForPath(path: string): ConflictEntry | null {

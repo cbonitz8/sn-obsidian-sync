@@ -22,6 +22,7 @@ export class SyncEngine {
   private intervalId: number | null = null;
   private isSyncing = false;
   private cachedMetadata: SNMetadata | null = null;
+  private skipPullSysIds = new Set<string>();
   constructor(
     plugin: SNSyncPlugin,
     apiClient: ApiClient,
@@ -36,6 +37,10 @@ export class SyncEngine {
     this.fileWatcher = fileWatcher;
     this.conflictResolver = conflictResolver;
     this.baseCache = baseCache;
+  }
+
+  addSkipPullId(sysId: string) {
+    this.skipPullSysIds.add(sysId);
   }
 
   start() {
@@ -419,6 +424,8 @@ export class SyncEngine {
   }
 
   private async handlePulledDoc(doc: SNDocument, result: SyncResult) {
+    if (this.skipPullSysIds.has(doc.sys_id)) return;
+
     const mapEntry = this.plugin.syncState.docMap[doc.sys_id];
 
     if (mapEntry) {
@@ -512,6 +519,7 @@ export class SyncEngine {
       }
     }
 
+    this.skipPullSysIds.clear();
     return latestTs;
   }
 
@@ -587,20 +595,39 @@ export class SyncEngine {
             // Fallback: old API without enhanced 409 body
             const latest = await this.apiClient.getDocument(fm.sys_id);
             if (latest.ok && latest.data) {
-              if (stripFrontmatter(latest.data.content) === stripFrontmatter(content)) {
+              const localBody = stripFrontmatter(content);
+              const remoteBody = stripFrontmatter(latest.data.content);
+
+              if (remoteBody === localBody) {
                 this.fileWatcher.addSyncWritePath(file.path);
                 await this.frontmatterManager.markSynced(file);
                 this.fileWatcher.removeSyncWritePath(file.path);
-                await this.baseCache.saveBase(fm.sys_id, stripFrontmatter(content));
+                await this.baseCache.saveBase(fm.sys_id, localBody);
                 result.pushed++;
               } else {
-                this.conflictResolver.applyConflict({
-                  sysId: fm.sys_id,
-                  path: file.path,
-                  remoteContent: latest.data.content,
-                  remoteTimestamp: latest.data.sys_updated_on,
-                });
-                result.conflicts++;
+                const ancestorBody = await this.baseCache.loadBase(fm.sys_id);
+                const baseSections = ancestorBody ? parseSections(ancestorBody) : null;
+                const localSections = parseSections(localBody);
+                const remoteSections = parseSections(remoteBody);
+                const mergeResult = mergeSections(baseSections, localSections, remoteSections);
+
+                if (!mergeResult.hasConflicts) {
+                  this.fileWatcher.addSyncWritePath(file.path);
+                  const merged = await this.rebuildWithFrontmatter(file, mergeResult.mergedBody);
+                  await this.plugin.app.vault.modify(file, merged);
+                  await this.frontmatterManager.markDirty(file);
+                  this.fileWatcher.removeSyncWritePath(file.path);
+                  await this.baseCache.saveBase(fm.sys_id, mergeResult.mergedBody);
+                } else {
+                  this.conflictResolver.applyConflict({
+                    sysId: fm.sys_id,
+                    path: file.path,
+                    remoteContent: latest.data.content,
+                    remoteTimestamp: latest.data.sys_updated_on,
+                    sectionConflicts: mergeResult.conflicts,
+                  });
+                  result.conflicts++;
+                }
               }
             }
           }

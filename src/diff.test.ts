@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDiff, extractHunks, computeSideBySide, extractSideBySideHunks, type DiffLine, type SideBySideLine } from "./diff";
+import { computeDiff, extractHunks, computeSideBySide, extractSideBySideHunks, extractChangeGroups, assembleDiffWithChoices, type DiffLine, type SideBySideLine } from "./diff";
 
 describe("computeDiff", () => {
   it("returns empty array for identical content", () => {
@@ -220,5 +220,76 @@ describe("extractSideBySideHunks", () => {
     expect(changed).toBeDefined();
     expect(changed!.left!.text).toBe("OLD");
     expect(changed!.right!.text).toBe("NEW");
+  });
+});
+
+describe("extractChangeGroups", () => {
+  it("returns empty for identical content", () => {
+    const diff = computeDiff("a\nb", "a\nb");
+    expect(extractChangeGroups(diff)).toEqual([]);
+  });
+
+  it("identifies single change group", () => {
+    const diff = computeDiff("a\nb\nc", "a\nX\nc");
+    const groups = extractChangeGroups(diff);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.index).toBe(0);
+    expect(groups[0]!.hasLocal).toBe(true);
+    expect(groups[0]!.hasRemote).toBe(true);
+  });
+
+  it("identifies separate change groups", () => {
+    const diff = computeDiff("a\nb\nc\nd\ne", "a\nB\nc\nD\ne");
+    const groups = extractChangeGroups(diff);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.index).toBe(0);
+    expect(groups[1]!.index).toBe(1);
+  });
+
+  it("detects local-only and remote-only groups", () => {
+    const diff = computeDiff("a\nb\nc", "a\nc\nX");
+    const groups = extractChangeGroups(diff);
+    expect(groups.some((g) => g.hasLocal && !g.hasRemote)).toBe(true);
+    expect(groups.some((g) => !g.hasLocal && g.hasRemote)).toBe(true);
+  });
+});
+
+describe("assembleDiffWithChoices", () => {
+  it("keeps local when all choices are local", () => {
+    const diff = computeDiff("a\nb\nc", "a\nX\nc");
+    const groups = extractChangeGroups(diff);
+    const choices = new Map([[0, "local" as const]]);
+    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc");
+  });
+
+  it("takes remote when choice is remote", () => {
+    const diff = computeDiff("a\nb\nc", "a\nX\nc");
+    const groups = extractChangeGroups(diff);
+    const choices = new Map([[0, "remote" as const]]);
+    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nX\nc");
+  });
+
+  it("mixes choices across change groups", () => {
+    const diff = computeDiff("a\nb\nc\nd\ne", "a\nB\nc\nD\ne");
+    const groups = extractChangeGroups(diff);
+    const choices = new Map([
+      [0, "local" as const],
+      [1, "remote" as const],
+    ]);
+    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc\nD\ne");
+  });
+
+  it("handles additions (remote-only) with remote choice", () => {
+    const diff = computeDiff("a\nb", "a\nb\nc");
+    const groups = extractChangeGroups(diff);
+    const choices = new Map([[0, "remote" as const]]);
+    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc");
+  });
+
+  it("handles additions (remote-only) with local choice (excludes addition)", () => {
+    const diff = computeDiff("a\nb", "a\nb\nc");
+    const groups = extractChangeGroups(diff);
+    const choices = new Map([[0, "local" as const]]);
+    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb");
   });
 });
