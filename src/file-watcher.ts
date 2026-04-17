@@ -1,4 +1,4 @@
-import { TFile, Notice } from "obsidian";
+import { TFile } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { FrontmatterManager } from "./frontmatter-manager";
 import type { ApiClient } from "./api-client";
@@ -95,14 +95,18 @@ export class FileWatcher {
 
     switch (behavior) {
       case "ignore":
-        this.plugin.syncState.ignoredIds.push(entry.sysId);
+        if (!this.plugin.syncState.ignoredIds.includes(entry.sysId)) {
+          this.plugin.syncState.ignoredIds.push(entry.sysId);
+        }
         delete this.plugin.syncState.docMap[entry.sysId];
         await this.plugin.saveSettings();
         break;
       case "re-pull":
         break;
       case "archive": {
-        this.plugin.syncState.ignoredIds.push(entry.sysId);
+        if (!this.plugin.syncState.ignoredIds.includes(entry.sysId)) {
+          this.plugin.syncState.ignoredIds.push(entry.sysId);
+        }
         delete this.plugin.syncState.docMap[entry.sysId];
         await this.plugin.saveSettings();
         break;

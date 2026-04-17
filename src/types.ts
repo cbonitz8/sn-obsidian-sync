@@ -102,7 +102,7 @@ export interface SNSyncSettings {
 export interface PluginData {
   settings: SNSyncSettings;
   syncState: SyncState;
-  auth: AuthTokens;
+  auth?: AuthTokens; // Legacy — tokens now stored in localStorage
 }
 
 export interface AuthTokens {

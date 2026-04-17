@@ -12,6 +12,10 @@ import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
 
+function sanitizeErrorMsg(msg: string): string {
+  return msg.split("\n")[0]!.slice(0, 200);
+}
+
 export class SyncEngine {
   private plugin: SNSyncPlugin;
   private apiClient: ApiClient;
@@ -157,7 +161,7 @@ export class SyncEngine {
           result.pulled++;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          result.errors.push(`Failed to create ${doc.title}: ${msg}`);
+          result.errors.push(`Failed to create ${doc.title}: ${sanitizeErrorMsg(msg)}`);
         }
       }
 
@@ -416,7 +420,7 @@ export class SyncEngine {
         this.plugin.updateSyncProgress(result.pulled, result.pushed);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        result.errors.push(`Pull error for ${doc.title}: ${msg}`);
+        result.errors.push(`Pull error for ${doc.title}: ${sanitizeErrorMsg(msg)}`);
       }
     }
 

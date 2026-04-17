@@ -74,6 +74,11 @@ export default class SNSyncPlugin extends Plugin {
     if (handlerMatch) {
       this.registerObsidianProtocolHandler(handlerMatch[1]!, async (params) => {
         if (params.code) {
+          // Validate OAuth code: alphanumeric + common token chars, max 512
+          if (params.code.length > 512 || !/^[\w\-./+=]+$/.test(params.code)) {
+            new Notice("Authentication failed: invalid authorization code.");
+            return;
+          }
           await this.authManager.handleCallback(params.code, params.state);
         }
       });
@@ -185,6 +190,7 @@ export default class SNSyncPlugin extends Plugin {
     this.syncEngine.start();
     void this.conflictResolver.migrateMarkerFiles();
     void this.checkDuplicateSysIds();
+    void baseCache.evictOrphans(new Set(Object.keys(this.syncState.docMap)));
 
     void this.conflictResolver.clearStaleConflicts().then((cleared) => {
       if (cleared > 0) {
@@ -207,7 +213,29 @@ export default class SNSyncPlugin extends Plugin {
     const data: Partial<PluginData> = (await this.loadData()) ?? {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
     this.syncState = Object.assign({}, DEFAULT_SYNC_STATE, data.syncState);
-    this.authTokens = Object.assign({}, DEFAULT_AUTH, data.auth);
+    this.syncState.ignoredIds = [...new Set(this.syncState.ignoredIds)];
+
+    // Load auth tokens from local storage (secure, not synced via cloud)
+    const storedAuth = this.app.loadLocalStorage("snobby-auth-tokens");
+    if (storedAuth) {
+      try { this.authTokens = Object.assign({}, DEFAULT_AUTH, JSON.parse(storedAuth)); }
+      catch { this.authTokens = Object.assign({}, DEFAULT_AUTH); }
+    } else if (data.auth) {
+      // Migrate from data.json → local storage
+      this.authTokens = Object.assign({}, DEFAULT_AUTH, data.auth);
+      this.app.saveLocalStorage("snobby-auth-tokens", JSON.stringify(this.authTokens));
+    } else {
+      this.authTokens = Object.assign({}, DEFAULT_AUTH);
+    }
+
+    // Load client secret from local storage
+    const storedSecret = this.app.loadLocalStorage("snobby-client-secret");
+    if (storedSecret) {
+      this.settings.oauthClientSecret = storedSecret;
+    } else if (this.settings.oauthClientSecret) {
+      // Migrate from data.json → local storage
+      this.app.saveLocalStorage("snobby-client-secret", this.settings.oauthClientSecret);
+    }
 
     const saved = this.settings.folderMapping;
     saved.categories = Object.assign(
@@ -215,15 +243,26 @@ export default class SNSyncPlugin extends Plugin {
       DEFAULT_FOLDER_MAPPING.categories,
       saved.categories
     );
+
+    // Clear migrated secrets from data.json on next save
+    if (data.auth || (data.settings as unknown as Record<string, unknown>)?.oauthClientSecret) {
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {
+    // Strip secrets before writing to data.json (synced file)
+    const settingsToSave = { ...this.settings, oauthClientSecret: "" };
     const data: PluginData = {
-      settings: this.settings,
+      settings: settingsToSave,
       syncState: this.syncState,
-      auth: this.authTokens,
     };
     await this.saveData(data);
+    // Persist tokens + secret to local storage (local-only, not synced)
+    this.app.saveLocalStorage("snobby-auth-tokens", JSON.stringify(this.authTokens));
+    if (this.settings.oauthClientSecret) {
+      this.app.saveLocalStorage("snobby-client-secret", this.settings.oauthClientSecret);
+    }
   }
 
   async fetchMetadata() {

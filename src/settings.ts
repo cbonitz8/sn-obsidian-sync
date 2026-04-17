@@ -103,9 +103,10 @@ export class SNSyncSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.instanceUrl)
           .onChange(async (value) => {
             if (value && !value.startsWith("https://")) {
-              new Notice("Warning: instance URL should use HTTPS to protect credentials.");
+              new Notice("Instance URL must use HTTPS to protect credentials.");
+              return;
             }
-            this.plugin.settings.instanceUrl = value;
+            this.plugin.settings.instanceUrl = value.replace(/\/+$/, "");
             await this.plugin.saveSettings();
           })
       );
@@ -118,6 +119,10 @@ export class SNSyncSettingTab extends PluginSettingTab {
           .setPlaceholder("/api/x_your_scope/your_api")
           .setValue(this.plugin.settings.apiPath)
           .onChange(async (value) => {
+            if (value && (value.includes("..") || !value.startsWith("/"))) {
+              new Notice("API path must start with / and cannot contain '..'");
+              return;
+            }
             this.plugin.settings.apiPath = value;
             await this.plugin.saveSettings();
           })

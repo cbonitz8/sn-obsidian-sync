@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice, Menu, TFile, Modal, Setting } from "obsidian";
 import type SNSyncPlugin from "./main";
 import type { SNDocument, SNMetadata, ConflictEntry } from "./types";
-import { computeSideBySide, computeDiff, extractSideBySideHunks } from "./diff";
+import { computeSideBySide, computeDiff, extractSideBySideHunks, extractChangeGroups, type DiffLine } from "./diff";
 import { stripFrontmatter } from "./frontmatter-manager";
 
 export const VIEW_TYPE_SN_BROWSER = "sn-document-browser";
@@ -23,6 +23,7 @@ export class SNBrowserView extends ItemView {
   private drillInSysId: string | null = null;
   private perSectionChoices: Map<string, Map<string, "local" | "remote">> = new Map();
   private hunkChoices: Map<string, Map<string, Map<number, "local" | "remote">>> = new Map();
+  private lineChoices: Map<string, Map<string, Map<number, boolean>>> = new Map();
 
   constructor(leaf: WorkspaceLeaf, plugin: SNSyncPlugin) {
     super(leaf);
@@ -388,7 +389,7 @@ export class SNBrowserView extends ItemView {
     const hasSections = sc && sc.length > 0;
 
     if (hasSections) {
-      // Render each conflicting section with interactive hunk-level diff
+      // Render each conflicting section with per-line interactive diff
       for (const s of sc) {
         const sectionBlock = drillIn.createDiv({ cls: "sn-drill-in-section" });
 
@@ -397,35 +398,59 @@ export class SNBrowserView extends ItemView {
         const name = rawName || "Document body";
         sectionHeader.createEl("span", { text: name });
 
-        // Section-level shortcut buttons (set all hunks in section)
+        // Render interactive diff (returns flat diff lines for button handlers)
+        const diffLines = this.renderInteractiveDiff(sectionBlock, conflict.sysId, s.key, s.localBody, s.remoteBody);
+        const sectionLineChoices = this.getOrCreateLineChoices(conflict.sysId, s.key);
+
+        // Section-level shortcut buttons
         const sectionBtns = sectionHeader.createDiv({ cls: "sn-drill-in-section-btns" });
-        const sectionChoices = this.getOrCreateHunkChoices(conflict.sysId, s.key);
-        const allLocal = [...sectionChoices.values()].every((c) => c === "local");
-        const allRemote = [...sectionChoices.values()].every((c) => c === "remote");
+
+        const allRemovedTrue = diffLines.every((l, i) => l.type !== "removed" || sectionLineChoices.get(i) === true);
+        const allAddedFalse = diffLines.every((l, i) => l.type !== "added" || sectionLineChoices.get(i) === false);
+        const allRemovedFalse = diffLines.every((l, i) => l.type !== "removed" || sectionLineChoices.get(i) === false);
+        const allAddedTrue = diffLines.every((l, i) => l.type !== "added" || sectionLineChoices.get(i) === true);
+        const allNonCtxTrue = diffLines.every((l, i) => l.type === "context" || sectionLineChoices.get(i) === true);
+        const isAllLocal = allRemovedTrue && allAddedFalse;
+        const isAllRemote = allRemovedFalse && allAddedTrue;
+        const isAllBoth = allNonCtxTrue;
 
         const remoteBtn = sectionBtns.createEl("button", {
           text: "All remote",
-          cls: `sn-conflict-quick-btn ${allRemote && sectionChoices.size > 0 ? "is-chosen" : ""}`,
+          cls: `sn-conflict-quick-btn ${isAllRemote ? "is-chosen" : ""}`,
         });
         remoteBtn.addEventListener("click", () => {
-          for (const [idx] of sectionChoices) sectionChoices.set(idx, "remote");
+          for (let i = 0; i < diffLines.length; i++) {
+            if (diffLines[i]!.type === "removed") sectionLineChoices.set(i, false);
+            else if (diffLines[i]!.type === "added") sectionLineChoices.set(i, true);
+          }
+          void this.render();
+        });
+
+        const bothBtn = sectionBtns.createEl("button", {
+          text: "Include both",
+          cls: `sn-conflict-quick-btn ${isAllBoth ? "is-chosen" : ""}`,
+        });
+        bothBtn.addEventListener("click", () => {
+          for (let i = 0; i < diffLines.length; i++) {
+            if (diffLines[i]!.type !== "context") sectionLineChoices.set(i, true);
+          }
           void this.render();
         });
 
         const localBtn = sectionBtns.createEl("button", {
           text: "All local",
-          cls: `sn-conflict-quick-btn ${allLocal && sectionChoices.size > 0 ? "is-chosen" : ""}`,
+          cls: `sn-conflict-quick-btn ${isAllLocal ? "is-chosen" : ""}`,
         });
         localBtn.addEventListener("click", () => {
-          for (const [idx] of sectionChoices) sectionChoices.set(idx, "local");
+          for (let i = 0; i < diffLines.length; i++) {
+            if (diffLines[i]!.type === "removed") sectionLineChoices.set(i, true);
+            else if (diffLines[i]!.type === "added") sectionLineChoices.set(i, false);
+          }
           void this.render();
         });
-
-        // Interactive side-by-side diff with clickable change groups
-        this.renderInteractiveDiff(sectionBlock, conflict.sysId, s.key, s.localBody, s.remoteBody);
       }
 
-      // Apply merge button (always available — defaults set automatically)
+      // Apply merge button
       const actions = drillIn.createDiv({ cls: "sn-drill-in-actions" });
       const applyBtn = actions.createEl("button", {
         text: "Apply merge",
@@ -433,9 +458,9 @@ export class SNBrowserView extends ItemView {
       });
       applyBtn.addEventListener("click", () => {
         void (async () => {
-          const allChoices = this.hunkChoices.get(conflict.sysId) ?? new Map();
-          await this.plugin.conflictResolver.resolveWithHunkChoices(conflict.sysId, allChoices);
-          this.hunkChoices.delete(conflict.sysId);
+          const allChoices = this.lineChoices.get(conflict.sysId) ?? new Map();
+          await this.plugin.conflictResolver.resolveWithLineChoices(conflict.sysId, allChoices);
+          this.lineChoices.delete(conflict.sysId);
           this.viewMode = "triage";
           this.drillInSysId = null;
           await this.render();
@@ -510,9 +535,9 @@ export class SNBrowserView extends ItemView {
     }
   }
 
-  private getOrCreateHunkChoices(sysId: string, sectionKey: string): Map<number, "local" | "remote"> {
-    if (!this.hunkChoices.has(sysId)) this.hunkChoices.set(sysId, new Map());
-    const sysMap = this.hunkChoices.get(sysId)!;
+  private getOrCreateLineChoices(sysId: string, sectionKey: string): Map<number, boolean> {
+    if (!this.lineChoices.has(sysId)) this.lineChoices.set(sysId, new Map());
+    const sysMap = this.lineChoices.get(sysId)!;
     if (!sysMap.has(sectionKey)) sysMap.set(sectionKey, new Map());
     return sysMap.get(sectionKey)!;
   }
@@ -523,58 +548,48 @@ export class SNBrowserView extends ItemView {
     sectionKey: string,
     localBody: string,
     remoteBody: string,
-  ) {
+  ): DiffLine[] {
     const allLines = computeSideBySide(localBody, remoteBody);
+    const diffLines = computeDiff(localBody, remoteBody);
+
     if (allLines.length === 0) {
       container.createEl("p", { text: "Contents are identical.", cls: "sn-conflict-empty" });
-      return;
+      return diffLines;
     }
 
-    // Identify change groups (contiguous non-context rows)
-    interface CG { index: number; startRow: number; endRow: number; hasLocal: boolean; hasRemote: boolean }
-    const changeGroups: CG[] = [];
-    let ri = 0;
-    let cgIdx = 0;
-    while (ri < allLines.length) {
-      const line = allLines[ri]!;
-      const isCtx = line.left?.type === "context" && line.right?.type === "context";
-      if (isCtx) { ri++; continue; }
-
-      const start = ri;
-      let hasLocal = false;
-      let hasRemote = false;
-      while (ri < allLines.length) {
-        const l = allLines[ri]!;
-        if (l.left?.type === "context" && l.right?.type === "context") break;
-        if (l.left && l.left.type !== "context") hasLocal = true;
-        if (l.right && l.right.type !== "context") hasRemote = true;
-        ri++;
-      }
-      changeGroups.push({ index: cgIdx++, startRow: start, endRow: ri - 1, hasLocal, hasRemote });
-    }
-
-    // Initialize default choices
-    const sectionChoices = this.getOrCreateHunkChoices(sysId, sectionKey);
+    // Initialize per-line defaults using change group analysis
+    const choices = this.getOrCreateLineChoices(sysId, sectionKey);
+    const changeGroups = extractChangeGroups(diffLines);
     for (const cg of changeGroups) {
-      if (!sectionChoices.has(cg.index)) {
-        if (cg.hasLocal && !cg.hasRemote) sectionChoices.set(cg.index, "local");
-        else if (!cg.hasLocal && cg.hasRemote) sectionChoices.set(cg.index, "remote");
-        else sectionChoices.set(cg.index, "local");
+      for (let idx = cg.startLine; idx <= cg.endLine; idx++) {
+        if (choices.has(idx)) continue;
+        const line = diffLines[idx]!;
+        if (cg.hasLocal && cg.hasRemote) {
+          // Overlapping: removed → true, added → false
+          choices.set(idx, line.type === "removed");
+        } else {
+          // Non-overlapping: include all
+          choices.set(idx, true);
+        }
       }
     }
 
-    // Build row → change group lookup
-    const rowToCg = new Map<number, CG>();
-    for (const cg of changeGroups) {
-      for (let r = cg.startRow; r <= cg.endRow; r++) rowToCg.set(r, cg);
+    // Identify non-context rows for rendering
+    const nonContextRows = new Set<number>();
+    for (let r = 0; r < allLines.length; r++) {
+      const line = allLines[r]!;
+      if (!(line.left?.type === "context" && line.right?.type === "context")) {
+        nonContextRows.add(r);
+      }
     }
 
-    // Compute visible ranges (change groups + 3 lines context, merged when overlapping)
+    // Compute visible ranges (non-context rows + 3 lines context)
     const CTX = 3;
     const ranges: { start: number; end: number }[] = [];
-    for (const cg of changeGroups) {
-      const s = Math.max(0, cg.startRow - CTX);
-      const e = Math.min(allLines.length - 1, cg.endRow + CTX);
+    const sortedNonCtx = [...nonContextRows].sort((a, b) => a - b);
+    for (const r of sortedNonCtx) {
+      const s = Math.max(0, r - CTX);
+      const e = Math.min(allLines.length - 1, r + CTX);
       if (ranges.length > 0 && s <= ranges[ranges.length - 1]!.end + 1) {
         ranges[ranges.length - 1]!.end = e;
       } else {
@@ -586,7 +601,7 @@ export class SNBrowserView extends ItemView {
     const legend = container.createDiv({ cls: "sn-diff-legend" });
     legend.createEl("span", { text: "Included in merge", cls: "sn-diff-legend-item sn-diff-legend-included" });
     legend.createEl("span", { text: "Excluded", cls: "sn-diff-legend-item sn-diff-legend-excluded" });
-    legend.createEl("span", { text: "Click a highlighted row to toggle", cls: "sn-diff-legend-hint" });
+    legend.createEl("span", { text: "Click a line to toggle", cls: "sn-diff-legend-hint" });
 
     const grid = container.createDiv({ cls: "sn-side-by-side" });
     grid.createDiv({ cls: "sn-side-by-side-header", text: "Local (Obsidian)" });
@@ -601,49 +616,55 @@ export class SNBrowserView extends ItemView {
       const range = ranges[rIdx]!;
       for (let row = range.start; row <= range.end; row++) {
         const line = allLines[row]!;
-        const cg = rowToCg.get(row);
 
-        if (!cg) {
+        if (!nonContextRows.has(row)) {
           // Context row
           grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-context", text: line.left?.text ?? "" });
           grid.createDiv({ cls: "sn-side-by-side-cell sn-diff-context", text: line.right?.text ?? "" });
-        } else {
-          const choice = sectionChoices.get(cg.index) ?? "local";
+          continue;
+        }
 
-          // Left cell: included if choice is "local" and cell has content, excluded otherwise
-          const leftHasChange = line.left != null && line.left.type !== "context";
-          const rightHasChange = line.right != null && line.right.type !== "context";
+        // Left cell
+        const leftIdx = line.left?.diffIndex;
+        const leftHasChange = line.left != null && line.left.type !== "context";
+        let leftCls: string;
+        if (!line.left) leftCls = "sn-diff-empty";
+        else if (!leftHasChange) leftCls = "sn-diff-context";
+        else leftCls = (leftIdx !== undefined && choices.get(leftIdx)) ? "sn-diff-included" : "sn-diff-excluded";
 
-          let leftCls: string;
-          if (!line.left) leftCls = "sn-diff-empty";
-          else if (!leftHasChange) leftCls = "sn-diff-context";
-          else leftCls = choice === "local" ? "sn-diff-included" : "sn-diff-excluded";
-
-          let rightCls: string;
-          if (!line.right) rightCls = "sn-diff-empty";
-          else if (!rightHasChange) rightCls = "sn-diff-context";
-          else rightCls = choice === "remote" ? "sn-diff-included" : "sn-diff-excluded";
-
-          const leftCell = grid.createDiv({
-            cls: `sn-side-by-side-cell ${leftCls} sn-hunk-clickable`,
-            text: line.left?.text ?? "",
-          });
-          const rightCell = grid.createDiv({
-            cls: `sn-side-by-side-cell ${rightCls} sn-hunk-clickable`,
-            text: line.right?.text ?? "",
-          });
-
+        const leftCell = grid.createDiv({
+          cls: `sn-side-by-side-cell ${leftCls}${leftHasChange ? " sn-hunk-clickable" : ""}`,
+          text: line.left?.text ?? "",
+        });
+        if (leftHasChange && leftIdx !== undefined) {
           leftCell.addEventListener("click", () => {
-            sectionChoices.set(cg.index, "local");
+            choices.set(leftIdx, !choices.get(leftIdx));
             void this.render();
           });
+        }
+
+        // Right cell
+        const rightIdx = line.right?.diffIndex;
+        const rightHasChange = line.right != null && line.right.type !== "context";
+        let rightCls: string;
+        if (!line.right) rightCls = "sn-diff-empty";
+        else if (!rightHasChange) rightCls = "sn-diff-context";
+        else rightCls = (rightIdx !== undefined && choices.get(rightIdx)) ? "sn-diff-included" : "sn-diff-excluded";
+
+        const rightCell = grid.createDiv({
+          cls: `sn-side-by-side-cell ${rightCls}${rightHasChange ? " sn-hunk-clickable" : ""}`,
+          text: line.right?.text ?? "",
+        });
+        if (rightHasChange && rightIdx !== undefined) {
           rightCell.addEventListener("click", () => {
-            sectionChoices.set(cg.index, "remote");
+            choices.set(rightIdx, !choices.get(rightIdx));
             void this.render();
           });
         }
       }
     }
+
+    return diffLines;
   }
 
   private renderTriageList(container: HTMLElement, conflicts: ConflictEntry[]) {
@@ -664,6 +685,7 @@ export class SNBrowserView extends ItemView {
         await this.plugin.conflictResolver.clearAllConflicts();
         this.perSectionChoices.clear();
         this.hunkChoices.clear();
+        this.lineChoices.clear();
         new Notice("All conflicts dismissed");
         await this.render();
       })();

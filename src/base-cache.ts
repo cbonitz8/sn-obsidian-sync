@@ -46,4 +46,18 @@ export class BaseCache {
     delete data[sysId];
     await this.persist();
   }
+
+  /** Remove cache entries not present in the active docMap. */
+  async evictOrphans(activeSysIds: Set<string>): Promise<number> {
+    const data = await this.ensureLoaded();
+    let evicted = 0;
+    for (const key of Object.keys(data)) {
+      if (!activeSysIds.has(key)) {
+        delete data[key];
+        evicted++;
+      }
+    }
+    if (evicted > 0) await this.persist();
+    return evicted;
+  }
 }

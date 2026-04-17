@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDiff, extractHunks, computeSideBySide, extractSideBySideHunks, extractChangeGroups, assembleDiffWithChoices, type DiffLine, type SideBySideLine } from "./diff";
+import { computeDiff, extractHunks, computeSideBySide, extractSideBySideHunks, extractChangeGroups, assembleDiffWithLineChoices, type DiffLine } from "./diff";
 
 describe("computeDiff", () => {
   it("returns empty array for identical content", () => {
@@ -157,7 +157,7 @@ describe("computeSideBySide", () => {
     const result = computeSideBySide("a\nb\nc", "a\nc");
     const removedRow = result.find((r) => r.left?.text === "b");
     expect(removedRow).toBeDefined();
-    expect(removedRow!.left).toEqual({ text: "b", type: "removed" });
+    expect(removedRow!.left).toMatchObject({ text: "b", type: "removed" });
     expect(removedRow!.right).toBeNull();
   });
 
@@ -166,37 +166,35 @@ describe("computeSideBySide", () => {
     const addedRow = result.find((r) => r.right?.text === "b");
     expect(addedRow).toBeDefined();
     expect(addedRow!.left).toBeNull();
-    expect(addedRow!.right).toEqual({ text: "b", type: "added" });
+    expect(addedRow!.right).toMatchObject({ text: "b", type: "added" });
   });
 
   it("pairs changed lines side by side", () => {
     const result = computeSideBySide("a\nold\nc", "a\nnew\nc");
     const changedRow = result.find((r) => r.left?.text === "old");
     expect(changedRow).toBeDefined();
-    expect(changedRow!.left).toEqual({ text: "old", type: "removed" });
-    expect(changedRow!.right).toEqual({ text: "new", type: "added" });
+    expect(changedRow!.left).toMatchObject({ text: "old", type: "removed" });
+    expect(changedRow!.right).toMatchObject({ text: "new", type: "added" });
   });
 
   it("handles multiple consecutive changes with unequal counts", () => {
     const result = computeSideBySide("a\nx\ny\nc", "a\np\nc");
     const xRow = result.find((r) => r.left?.text === "x");
-    expect(xRow!.right).toEqual({ text: "p", type: "added" });
+    expect(xRow!.right).toMatchObject({ text: "p", type: "added" });
     const yRow = result.find((r) => r.left?.text === "y");
     expect(yRow!.right).toBeNull();
   });
 
   it("handles empty local content", () => {
     const result = computeSideBySide("", "new line");
-    expect(result).toEqual([
-      { left: null, right: { text: "new line", type: "added" } },
-    ]);
+    expect(result[0]!.left).toBeNull();
+    expect(result[0]!.right).toMatchObject({ text: "new line", type: "added" });
   });
 
   it("handles empty remote content", () => {
     const result = computeSideBySide("old line", "");
-    expect(result).toEqual([
-      { left: { text: "old line", type: "removed" }, right: null },
-    ]);
+    expect(result[0]!.left).toMatchObject({ text: "old line", type: "removed" });
+    expect(result[0]!.right).toBeNull();
   });
 });
 
@@ -254,42 +252,93 @@ describe("extractChangeGroups", () => {
   });
 });
 
-describe("assembleDiffWithChoices", () => {
-  it("keeps local when all choices are local", () => {
+describe("assembleDiffWithLineChoices", () => {
+  it("keeps local when all removed=true and added=false", () => {
     const diff = computeDiff("a\nb\nc", "a\nX\nc");
-    const groups = extractChangeGroups(diff);
-    const choices = new Map([[0, "local" as const]]);
-    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc");
+    // diff: context a, removed b (idx 1), added X (idx 2), context c
+    const choices = new Map([[1, true], [2, false]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nb\nc");
   });
 
-  it("takes remote when choice is remote", () => {
+  it("takes remote when removed=false and added=true", () => {
     const diff = computeDiff("a\nb\nc", "a\nX\nc");
-    const groups = extractChangeGroups(diff);
-    const choices = new Map([[0, "remote" as const]]);
-    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nX\nc");
+    const choices = new Map([[1, false], [2, true]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nX\nc");
   });
 
-  it("mixes choices across change groups", () => {
+  it("includes both sides (additive merge)", () => {
+    const diff = computeDiff("a\nb\nc", "a\nX\nc");
+    const choices = new Map([[1, true], [2, true]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nb\nX\nc");
+  });
+
+  it("excludes both sides (deletion)", () => {
+    const diff = computeDiff("a\nb\nc", "a\nX\nc");
+    const choices = new Map([[1, false], [2, false]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nc");
+  });
+
+  it("cherry-picks individual lines from a multi-line change group", () => {
+    // The motivating use case: 2 removed + 1 added in one group
+    const diff = computeDiff("a\ndelete\nkeep this\nb", "a\nhm\nb");
+    // diff: context a, removed delete (1), removed keep this (2), added hm (3), context b
+    const choices = new Map([[1, false], [2, true], [3, true]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nkeep this\nhm\nb");
+  });
+
+  it("handles multiple change groups independently", () => {
     const diff = computeDiff("a\nb\nc\nd\ne", "a\nB\nc\nD\ne");
-    const groups = extractChangeGroups(diff);
-    const choices = new Map([
-      [0, "local" as const],
-      [1, "remote" as const],
-    ]);
-    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc\nD\ne");
+    // group 0: removed b (1), added B (2); group 1: removed d (4), added D (5)
+    const choices = new Map([[1, true], [2, false], [4, false], [5, true]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a\nb\nc\nD\ne");
   });
 
-  it("handles additions (remote-only) with remote choice", () => {
-    const diff = computeDiff("a\nb", "a\nb\nc");
-    const groups = extractChangeGroups(diff);
-    const choices = new Map([[0, "remote" as const]]);
-    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb\nc");
+  it("context lines always included regardless of choices", () => {
+    const diff = computeDiff("a\nb", "a\nc");
+    const choices = new Map([[1, false], [2, false]]);
+    expect(assembleDiffWithLineChoices(diff, choices)).toBe("a");
+  });
+});
+
+describe("computeSideBySide diffIndex annotation", () => {
+  it("annotates removed cells with correct diffIndex", () => {
+    const sbs = computeSideBySide("a\nb\nc", "a\nc");
+    // diff: context a (0), removed b (1), context c (2)
+    const removedRow = sbs.find((r) => r.left?.type === "removed");
+    expect(removedRow).toBeDefined();
+    expect(removedRow!.left!.diffIndex).toBe(1);
   });
 
-  it("handles additions (remote-only) with local choice (excludes addition)", () => {
-    const diff = computeDiff("a\nb", "a\nb\nc");
-    const groups = extractChangeGroups(diff);
-    const choices = new Map([[0, "local" as const]]);
-    expect(assembleDiffWithChoices(diff, groups, choices)).toBe("a\nb");
+  it("annotates added cells with correct diffIndex", () => {
+    const sbs = computeSideBySide("a\nc", "a\nb\nc");
+    // diff: context a (0), added b (1), context c (2)
+    const addedRow = sbs.find((r) => r.right?.type === "added");
+    expect(addedRow).toBeDefined();
+    expect(addedRow!.right!.diffIndex).toBe(1);
+  });
+
+  it("annotates paired removed+added with correct diffIndices", () => {
+    const sbs = computeSideBySide("a\nold\nc", "a\nnew\nc");
+    // diff: context a (0), removed old (1), added new (2), context c (3)
+    const pairedRow = sbs.find((r) => r.left?.type === "removed" && r.right?.type === "added");
+    expect(pairedRow).toBeDefined();
+    expect(pairedRow!.left!.diffIndex).toBe(1);
+    expect(pairedRow!.right!.diffIndex).toBe(2);
+  });
+
+  it("context cells have no diffIndex", () => {
+    const sbs = computeSideBySide("a\nb", "a\nc");
+    const contextRow = sbs.find((r) => r.left?.type === "context");
+    expect(contextRow).toBeDefined();
+    expect(contextRow!.left!.diffIndex).toBeUndefined();
+  });
+
+  it("multi-line removed run has sequential diffIndices", () => {
+    const sbs = computeSideBySide("a\nb\nc\nd", "a\nd");
+    // diff: context a (0), removed b (1), removed c (2), context d (3)
+    const removedRows = sbs.filter((r) => r.left?.type === "removed");
+    expect(removedRows).toHaveLength(2);
+    expect(removedRows[0]!.left!.diffIndex).toBe(1);
+    expect(removedRows[1]!.left!.diffIndex).toBe(2);
   });
 });

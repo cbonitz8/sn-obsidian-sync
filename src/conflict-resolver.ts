@@ -5,7 +5,7 @@ import type { BaseCache } from "./base-cache";
 import { stripFrontmatter } from "./frontmatter-manager";
 import { parseSections, serializeSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
-import { computeDiff, extractChangeGroups, assembleDiffWithChoices } from "./diff";
+import { computeDiff, assembleDiffWithLineChoices } from "./diff";
 import { contentHash } from "./content-hash";
 
 const MARKER_LOCAL = "<<<<<<< Local (Obsidian)";
@@ -72,15 +72,15 @@ export function assemblePerSectionMerge(
 }
 
 /**
- * Assemble a merged document body using per-change-group choices within sections.
- * Non-conflicting sections are auto-resolved by mergeSections; conflicting
- * sections are assembled from diff + hunk choices.
+ * Assemble a merged document body using per-line boolean choices within sections.
+ * Non-conflicting sections are auto-resolved; conflicting sections are assembled
+ * from diff lines where each line is independently included or excluded.
  */
-export function assembleWithHunkChoices(
+export function assembleWithLineChoices(
   localBody: string,
   remoteBody: string,
   baseBody: string | null,
-  hunkChoices: Map<string, Map<number, "local" | "remote">>,
+  lineChoices: Map<string, Map<number, boolean>>,
 ): string {
   const baseSections = baseBody ? parseSections(baseBody) : null;
   const localSections = parseSections(localBody);
@@ -91,7 +91,7 @@ export function assembleWithHunkChoices(
   const final = new Map(mergedSections);
 
   for (const conflict of mergeResult.conflicts) {
-    const choices = hunkChoices.get(conflict.key);
+    const choices = lineChoices.get(conflict.key);
     if (!choices || choices.size === 0) {
       const section = localSections.get(conflict.key);
       if (section) final.set(conflict.key, section);
@@ -99,8 +99,7 @@ export function assembleWithHunkChoices(
     }
 
     const diffLines = computeDiff(conflict.localBody, conflict.remoteBody);
-    const changeGroups = extractChangeGroups(diffLines);
-    const mergedBody = assembleDiffWithChoices(diffLines, changeGroups, choices);
+    const mergedBody = assembleDiffWithLineChoices(diffLines, choices);
 
     const localSection = localSections.get(conflict.key);
     const remoteSection = remoteSections.get(conflict.key);
@@ -230,9 +229,9 @@ export class ConflictResolver {
     new Notice(`"${fileName}" merged with per-section choices.`);
   }
 
-  async resolveWithHunkChoices(
+  async resolveWithLineChoices(
     sysId: string,
-    hunkChoices: Map<string, Map<number, "local" | "remote">>,
+    lineChoices: Map<string, Map<number, boolean>>,
   ): Promise<void> {
     const conflict = this.plugin.syncState.conflicts[sysId];
     if (!conflict) return;
@@ -251,7 +250,7 @@ export class ConflictResolver {
       ? stripFrontmatter(conflict.ancestorContent)
       : await this.baseCache.loadBase(sysId);
 
-    const mergedBody = assembleWithHunkChoices(localBody, remoteBody, baseBody, hunkChoices);
+    const mergedBody = assembleWithLineChoices(localBody, remoteBody, baseBody, lineChoices);
 
     let newContent: string;
     if (raw.startsWith("---")) {
@@ -277,7 +276,7 @@ export class ConflictResolver {
     await this.plugin.saveSettings();
 
     const fileName = conflict.path.split("/").pop() ?? conflict.path;
-    new Notice(`"${fileName}" merged with hunk-level choices.`);
+    new Notice(`"${fileName}" merged with per-line choices.`);
   }
 
   getConflictForPath(path: string): ConflictEntry | null {

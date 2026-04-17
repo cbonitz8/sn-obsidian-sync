@@ -43,16 +43,25 @@ export function isTopLevelCategory(mapping: FolderMapping, category: string): bo
   return typeof catMapping !== "string" && catMapping.topLevel === true;
 }
 
+const MAX_PATH_SEGMENT = 200;
+// Standard forbidden + Unicode slash/backslash lookalikes
+const UNSAFE_PATH_CHARS = /[\\/:*?"<>|\u2215\uFF0F\uFF3C\u29F8\u29F9]/g;
+
 export function sanitizeTitle(title: string): string {
   const trimmed = title.trim();
   if (trimmed.length === 0) return "Untitled";
-  return trimmed.replace(/[\\/:*?"<>|]/g, "-");
+  return trimmed
+    .replace(UNSAFE_PATH_CHARS, "-")
+    .replace(/\.\./g, "")
+    .replace(/^\.+/, "")
+    .slice(0, MAX_PATH_SEGMENT);
 }
 
 export function sanitizePathSegment(segment: string): string {
-  return segment
-    .replace(/[\\/:*?"<>|]/g, "-")
+  return (segment
+    .replace(UNSAFE_PATH_CHARS, "-")
     .replace(/\.\./g, "")
     .replace(/^\.+/, "")
-    .trim() || "unknown";
+    .trim() || "unknown"
+  ).slice(0, MAX_PATH_SEGMENT);
 }

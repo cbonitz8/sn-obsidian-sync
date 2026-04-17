@@ -6,6 +6,7 @@ export interface DiffLine {
 export interface SideBySideCell {
   text: string;
   type: "context" | "added" | "removed";
+  diffIndex?: number;
 }
 
 export interface SideBySideLine {
@@ -135,22 +136,14 @@ export function extractChangeGroups(diffLines: DiffLine[]): ChangeGroup[] {
 }
 
 /**
- * Assemble merged text from a diff and per-change-group choices.
- * Context lines are always included. For each change group, "local" includes
- * removed lines (local content), "remote" includes added lines (remote content).
+ * Assemble merged text from a diff and per-line inclusion choices.
+ * Context lines are always included. Each non-context line is independently
+ * included (true) or excluded (false) by its flat diff index.
  */
-export function assembleDiffWithChoices(
+export function assembleDiffWithLineChoices(
   diffLines: DiffLine[],
-  changeGroups: ChangeGroup[],
-  choices: Map<number, "local" | "remote">,
+  lineChoices: Map<number, boolean>,
 ): string {
-  const lineToGroup = new Map<number, number>();
-  for (const g of changeGroups) {
-    for (let j = g.startLine; j <= g.endLine; j++) {
-      lineToGroup.set(j, g.index);
-    }
-  }
-
   const output: string[] = [];
   for (let i = 0; i < diffLines.length; i++) {
     const line = diffLines[i]!;
@@ -158,18 +151,10 @@ export function assembleDiffWithChoices(
       output.push(line.text);
       continue;
     }
-
-    const groupIdx = lineToGroup.get(i);
-    if (groupIdx === undefined) continue;
-
-    const choice = choices.get(groupIdx) ?? "local";
-    if (choice === "local" && line.type === "removed") {
-      output.push(line.text);
-    } else if (choice === "remote" && line.type === "added") {
+    if (lineChoices.get(i) === true) {
       output.push(line.text);
     }
   }
-
   return output.join("\n");
 }
 
@@ -291,13 +276,15 @@ export function computeSideBySide(local: string, remote: string): SideBySideLine
       continue;
     }
 
-    // Collect consecutive removed + added runs
+    // Collect consecutive removed + added runs, tracking flat diff indices
+    const removedStart = i;
     const removed: DiffLine[] = [];
-    const added: DiffLine[] = [];
     while (i < diffLines.length && diffLines[i]!.type === "removed") {
       removed.push(diffLines[i]!);
       i++;
     }
+    const addedStart = i;
+    const added: DiffLine[] = [];
     while (i < diffLines.length && diffLines[i]!.type === "added") {
       added.push(diffLines[i]!);
       i++;
@@ -308,8 +295,8 @@ export function computeSideBySide(local: string, remote: string): SideBySideLine
       const leftLine = removed[j] ?? null;
       const rightLine = added[j] ?? null;
       result.push({
-        left: leftLine ? { text: leftLine.text, type: "removed" } : null,
-        right: rightLine ? { text: rightLine.text, type: "added" } : null,
+        left: leftLine ? { text: leftLine.text, type: "removed", diffIndex: removedStart + j } : null,
+        right: rightLine ? { text: rightLine.text, type: "added", diffIndex: addedStart + j } : null,
       });
     }
   }
