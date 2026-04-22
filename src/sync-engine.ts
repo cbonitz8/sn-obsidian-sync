@@ -9,7 +9,7 @@ import type { BaseCache } from "./base-cache";
 import { resolveFilePath, sanitizePathSegment, isTopLevelCategory } from "./folder-mapper";
 import { promptNewDocMetadata } from "./new-doc-modal";
 import { stripFrontmatter } from "./frontmatter-manager";
-import { parseSections } from "./section-parser";
+import { parseSections, serializeSections } from "./section-parser";
 import { mergeSections } from "./section-merger";
 import { md5Hash } from "./content-hash";
 
@@ -867,6 +867,12 @@ export class SyncEngine {
         tags = userInput.tags;
       }
 
+      // Check for existing server doc with same title+category before creating
+      const existingDoc = await this.findExistingServerDoc(file.basename, category);
+      if (existingDoc) {
+        return this.adoptAndMergeDoc(file, existingDoc, content, result);
+      }
+
       await this.ensureMetadata();
       const createResult = await this.apiClient.createDocument({
         title: file.basename,
@@ -911,6 +917,94 @@ export class SyncEngine {
       result.pushed++;
       return newDoc.sys_updated_on;
     }
+  }
+
+  private async findExistingServerDoc(title: string, category: string): Promise<SNDocument | null> {
+    const response = await this.apiClient.getDocuments();
+    if (!response.ok || !response.data) return null;
+    const docs = Array.isArray(response.data) ? response.data : [response.data];
+    return docs.find((d) => d.title === title && d.category === category) ?? null;
+  }
+
+  private async adoptAndMergeDoc(
+    file: TFile,
+    serverDoc: SNDocument,
+    localContent: string,
+    result: SyncResult
+  ): Promise<string | null> {
+    const localBody = stripFrontmatter(localContent);
+    const remoteBody = stripFrontmatter(serverDoc.content);
+
+    // Combine sections: start with server's, overlay local (adds new user sections)
+    const remoteSections = parseSections(remoteBody);
+    const localSections = parseSections(localBody);
+    const merged = new Map(remoteSections);
+    for (const [key, section] of localSections) {
+      merged.set(key, section);
+    }
+    const mergedBody = serializeSections(merged);
+
+    // Rebuild pushable content with server's non-sn frontmatter + merged body
+    let pushContent: string;
+    if (serverDoc.content.startsWith("---")) {
+      const endIdx = serverDoc.content.indexOf("\n---", 3);
+      if (endIdx !== -1) {
+        pushContent = serverDoc.content.substring(0, endIdx + 4) + "\n" + mergedBody;
+      } else {
+        pushContent = mergedBody;
+      }
+    } else {
+      pushContent = mergedBody;
+    }
+
+    // Push as UPDATE to existing server doc
+    const updateResult = await this.apiClient.updateDocument(serverDoc.sys_id, {
+      content: pushContent,
+      title: file.basename,
+      expected_hash: serverDoc.content_hash,
+    });
+
+    if (!updateResult.ok) {
+      if (updateResult.status === 409) {
+        // Server changed since we read it — fall back to normal create
+        // (next sync will reconcile via merge)
+        result.errors.push(`Standup adopt conflict for ${file.basename} — will retry next sync`);
+      } else {
+        result.errors.push(`Adopt failed for ${file.basename}: HTTP ${updateResult.status}`);
+      }
+      return null;
+    }
+
+    // Update local file with merged content + server's sys_id
+    this.fileWatcher.addSyncWritePath(file.path);
+    try {
+      const merged = await this.rebuildWithFrontmatter(file, mergedBody);
+      await this.plugin.app.vault.modify(file, merged);
+      await this.frontmatterManager.write(file, {
+        sys_id: serverDoc.sys_id,
+        category: serverDoc.category,
+        project: serverDoc.project,
+        tags: serverDoc.tags,
+        synced: true,
+      });
+    } finally {
+      this.fileWatcher.removeSyncWritePath(file.path);
+    }
+
+    this.plugin.syncState.docMap[serverDoc.sys_id] = {
+      sysId: serverDoc.sys_id,
+      path: file.path,
+      lastServerTimestamp: updateResult.data?.sys_updated_on ?? serverDoc.sys_updated_on,
+      contentHash: updateResult.data?.content_hash ?? serverDoc.content_hash ?? "",
+      localContentHash: await computeLocalHash(
+        this.plugin.app.vault, this.plugin.settings.frontmatterPrefix, file
+      ),
+      lastSyncMtime: file.stat.mtime,
+    };
+
+    await this.baseCache.saveBase(serverDoc.sys_id, mergedBody);
+    result.pushed++;
+    return updateResult.data?.sys_updated_on ?? null;
   }
 
   private resolveLabel(type: "projects" | "categories", value: string): string {
