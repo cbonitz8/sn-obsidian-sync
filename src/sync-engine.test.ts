@@ -1292,3 +1292,91 @@ describe("pull updates localContentHash and lastSyncMtime", () => {
     expect(entry.localContentHash).toBe(origHash);
   });
 });
+
+describe("standup deduplication — adoptAndMergeDoc", () => {
+  it("adopts existing server doc instead of creating duplicate", async () => {
+    const { engine, plugin, apiClient, fm } = buildEngine();
+    // Local standup with Caleb's section
+    const localContent = "### Caleb\n\nCaleb's standup\n";
+    const file = plugin.app.vault.addFile("Standups/2026-04-22.md", localContent);
+    fm._state.set("Standups/2026-04-22.md", { category: "standup" }); // no sys_id
+
+    // Server already has a standup with Kelly's section
+    const serverDoc = makeDoc({
+      sys_id: "server1",
+      title: "2026-04-22",
+      content: "---\ndate: 2026-04-22\ntype: standup\n---\n### Kelly\n\nKelly's standup\n",
+      category: "standup",
+      content_hash: "serverhash",
+      sys_updated_on: "2026-01-05 00:00:00",
+    });
+
+    apiClient.getDocuments.mockResolvedValue({ ok: true, data: [serverDoc], status: 200 });
+    apiClient.updateDocument.mockResolvedValue({
+      ok: true,
+      data: { sys_updated_on: "2026-01-06 00:00:00", content_hash: "mergedhash" },
+      status: 200,
+    });
+
+    const result = freshResult();
+    await callHandlePushFile(engine, file, result);
+
+    // Should UPDATE, not CREATE
+    expect(apiClient.createDocument).not.toHaveBeenCalled();
+    expect(apiClient.updateDocument).toHaveBeenCalled();
+
+    // Local file should have server's sys_id
+    const fmState = fm._state.get("Standups/2026-04-22.md");
+    expect(fmState?.sys_id).toBe("server1");
+
+    // Should be in docMap
+    expect(plugin.syncState.docMap["server1"]).toBeDefined();
+    expect(result.pushed).toBe(1);
+  });
+
+  it("merged content includes sections from both sides", async () => {
+    const { engine, plugin, apiClient, fm } = buildEngine();
+    const localContent = "### Caleb\n\nCaleb's standup\n";
+    const file = plugin.app.vault.addFile("Standups/2026-04-22.md", localContent);
+    fm._state.set("Standups/2026-04-22.md", { category: "standup" });
+
+    const serverDoc = makeDoc({
+      sys_id: "server1",
+      title: "2026-04-22",
+      content: "### Kelly\n\nKelly's standup\n",
+      category: "standup",
+      content_hash: "serverhash",
+    });
+
+    apiClient.getDocuments.mockResolvedValue({ ok: true, data: [serverDoc], status: 200 });
+    apiClient.updateDocument.mockResolvedValue({
+      ok: true,
+      data: { sys_updated_on: "2026-01-06 00:00:00", content_hash: "mergedhash" },
+      status: 200,
+    });
+
+    const result = freshResult();
+    await callHandlePushFile(engine, file, result);
+
+    // Check the content pushed to server contains both sections
+    const pushCall = apiClient.updateDocument.mock.calls[0]!;
+    const pushedContent = pushCall[1].content as string;
+    expect(pushedContent).toContain("Kelly");
+    expect(pushedContent).toContain("Caleb");
+  });
+
+  it("creates normally when no existing server doc found", async () => {
+    const { engine, plugin, apiClient, fm } = buildEngine();
+    const file = plugin.app.vault.addFile("Standups/2026-04-22.md", "### Caleb\n\nStandup\n");
+    fm._state.set("Standups/2026-04-22.md", { category: "standup" });
+
+    apiClient.getDocuments.mockResolvedValue({ ok: true, data: [], status: 200 });
+
+    const result = freshResult();
+    await callHandlePushFile(engine, file, result);
+
+    // No existing doc → normal create
+    expect(apiClient.createDocument).toHaveBeenCalled();
+    expect(result.pushed).toBe(1);
+  });
+});
