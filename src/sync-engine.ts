@@ -521,13 +521,17 @@ export class SyncEngine {
       if (mapEntry.localContentHash !== undefined) {
         localChanged = localHash !== mapEntry.localContentHash;
       } else {
-        // Legacy entry — fall back to base cache body comparison
+        // Legacy entry — fall back to base cache or direct body comparison
         const baseBody = await this.baseCache.loadBase(doc.sys_id);
         if (baseBody !== null) {
           const localBody = await this.getBodyContent(file);
           localChanged = localBody !== baseBody;
         } else {
-          localChanged = false;
+          // No base and no localContentHash — compare local body against server body directly.
+          // If identical, local hasn't changed. If different, treat as local changed (merge).
+          const localBody = await this.getBodyContent(file);
+          const remoteBody = stripFrontmatter(doc.content);
+          localChanged = localBody !== remoteBody;
         }
       }
 
@@ -619,8 +623,10 @@ export class SyncEngine {
       // Compare against stored hash
       if (entry.localContentHash !== undefined && localHash === entry.localContentHash) continue;
 
-      // Legacy migration: no localContentHash — compare against server hash
-      if (entry.localContentHash === undefined && localHash === entry.contentHash) {
+      // Legacy migration: no localContentHash — backfill and skip.
+      // Local and server hashes use different normalization so direct comparison is unreliable.
+      // The pull phase handles server→local changes; here we just establish the baseline.
+      if (entry.localContentHash === undefined) {
         entry.localContentHash = localHash;
         entry.lastSyncMtime = file.stat.mtime;
         continue;

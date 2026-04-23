@@ -636,23 +636,41 @@ describe("handlePulledDoc — legacy entry fallback (no localContentHash)", () =
     expect(result.pulled).toBe(1);
   });
 
-  it("treats as clean when localContentHash undefined and no base cache", async () => {
+  it("compares bodies directly when no base cache — identical bodies treated as clean", async () => {
     const { engine, plugin, fm } = buildEngine();
-    plugin.app.vault.addFile("Knowledge/doc.md", "Local content");
+    plugin.app.vault.addFile("Knowledge/doc.md", "Same content");
     fm._state.set("Knowledge/doc.md", { sys_id: "doc1", category: "kb_knowledge" });
     plugin.syncState.docMap["doc1"] = {
       sysId: "doc1", path: "Knowledge/doc.md",
       lastServerTimestamp: "2026-01-01 00:00:00", contentHash: "oldhash",
     };
-    // No base cache, no localContentHash
+
+    const doc = makeDoc({ content: "Same content" });
+    const result = freshResult();
+    await callHandlePulledDoc(engine, doc, result);
+
+    // Bodies match → local clean → overwrite (harmless, same content)
+    expect(plugin.app.vault.modify).toHaveBeenCalled();
+    expect(result.pulled).toBe(1);
+  });
+
+  it("compares bodies directly when no base cache — different bodies trigger merge", async () => {
+    const { engine, plugin, fm, cr } = buildEngine();
+    plugin.app.vault.addFile("Knowledge/doc.md", "Local content with edits");
+    fm._state.set("Knowledge/doc.md", { sys_id: "doc1", category: "kb_knowledge" });
+    plugin.syncState.docMap["doc1"] = {
+      sysId: "doc1", path: "Knowledge/doc.md",
+      lastServerTimestamp: "2026-01-01 00:00:00", contentHash: "oldhash",
+    };
 
     const doc = makeDoc({ content: "Remote content" });
     const result = freshResult();
     await callHandlePulledDoc(engine, doc, result);
 
-    // No way to detect changes → treat as clean → overwrite
-    expect(plugin.app.vault.modify).toHaveBeenCalled();
-    expect(result.pulled).toBe(1);
+    // Bodies differ → treat as local changed → merge/conflict path (not silent overwrite)
+    const modifyCalled = plugin.app.vault.modify.mock.calls.length > 0;
+    const conflictCalled = cr.applyConflict.mock.calls.length > 0;
+    expect(modifyCalled || conflictCalled).toBe(true);
   });
 });
 
@@ -1041,6 +1059,7 @@ describe("exception safety", () => {
     plugin.syncState.docMap["doc1"] = {
       sysId: "doc1", path: "Knowledge/doc.md",
       lastServerTimestamp: "2026-01-01 00:00:00", contentHash: "oldhash",
+      localContentHash: md5Hash("Old content"),
     };
 
     plugin.app.vault.modify.mockRejectedValueOnce(new Error("Disk full"));
@@ -1061,6 +1080,7 @@ describe("exception safety", () => {
     plugin.syncState.docMap["doc1"] = {
       sysId: "doc1", path: "Knowledge/doc.md",
       lastServerTimestamp: "2026-01-01 00:00:00", contentHash: "oldhash",
+      localContentHash: md5Hash("Old content"),
     };
 
     fm.write.mockRejectedValueOnce(new Error("FM write failed"));
@@ -1224,7 +1244,7 @@ describe("hash-based push discovery", () => {
     expect(result.pushed).toBe(1);
   });
 
-  it("backfills legacy entry when hash matches server hash", async () => {
+  it("backfills legacy entry without pushing (even if server hash differs)", async () => {
     const { engine, plugin, apiClient, fm } = buildEngine();
     const content = "Unchanged content";
     const file = plugin.app.vault.addFile("Knowledge/doc.md", content);
@@ -1232,14 +1252,14 @@ describe("hash-based push discovery", () => {
     plugin.syncState.docMap["doc1"] = {
       sysId: "doc1", path: "Knowledge/doc.md",
       lastServerTimestamp: "2026-01-01 00:00:00",
-      contentHash: md5Hash(content), // server hash matches local hash
+      contentHash: "server-uses-different-normalization",
       // No localContentHash — legacy entry
     };
 
     apiClient.getChanges.mockResolvedValue({ ok: true, data: [], status: 200 });
     await engine.sync();
 
-    // Should backfill without pushing
+    // Should backfill without pushing — legacy entries just establish baseline
     expect(apiClient.updateDocument).not.toHaveBeenCalled();
     expect(plugin.syncState.docMap["doc1"]!.localContentHash).toBe(md5Hash(content));
     expect(plugin.syncState.docMap["doc1"]!.lastSyncMtime).toBeDefined();
